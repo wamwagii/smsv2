@@ -12,6 +12,7 @@ use Filament\Forms\Components\Placeholder;
 use Filament\Schemas\Schema;
 use App\Models\Student;
 use App\Models\FeeStructure;
+use App\Models\Invoice;
 
 class InvoiceForm
 {
@@ -26,11 +27,13 @@ class InvoiceForm
                     ->schema([
                         Grid::make(2)
                             ->schema([
-                                // Auto-generated Invoice Number - Not Editable
                                 TextInput::make('invoice_number')
                                     ->label('Invoice Number')
                                     ->required()
                                     ->maxLength(50)
+                                    ->default(function () {
+                                        return static::generateInvoiceNumber();
+                                    })
                                     ->disabled()
                                     ->dehydrated(true)
                                     ->helperText('Auto-generated invoice number (format: INV/YYYY/XXXX)')
@@ -44,11 +47,11 @@ class InvoiceForm
                                     ->preload()
                                     ->live()
                                     ->afterStateUpdated(function ($set, $get) {
-                                        static::calculateInvoiceAmount($set, $get);
+                                        static::loadStudentDetails($set, $get);
                                     })
                                     ->helperText('Select the student'),
                                 
-                                Select::make('fees_structure_id')
+                                Select::make('fee_structure_id')
                                     ->label('Fee Structure')
                                     ->options(function () {
                                         return FeeStructure::where('is_active', true)
@@ -70,9 +73,9 @@ class InvoiceForm
                                 Select::make('term')
                                     ->label('Term')
                                     ->options([
-                                        'term_1' => 'Term 1',
-                                        'term_2' => 'Term 2',
-                                        'term_3' => 'Term 3',
+                                        'term_1' => 'Term 1 (January - March)',
+                                        'term_2' => 'Term 2 (April - July)',
+                                        'term_3' => 'Term 3 (August - November)',
                                     ])
                                     ->required()
                                     ->live()
@@ -89,9 +92,7 @@ class InvoiceForm
                                     ->prefix('KES')
                                     ->required()
                                     ->live()
-                                    ->afterStateUpdated(function ($set, $get) {
-                                        static::updateBalance($set, $get);
-                                    }),
+                                    ->helperText('Amount to be paid'),
                                 
                                 TextInput::make('amount_paid')
                                     ->label('Amount Paid')
@@ -102,13 +103,14 @@ class InvoiceForm
                                     ->dehydrated(true)
                                     ->helperText('Auto-updates from payments'),
                                 
-                                TextInput::make('balance')
+                                Placeholder::make('balance_display')
                                     ->label('Balance')
-                                    ->numeric()
-                                    ->prefix('KES')
-                                    ->disabled()
-                                    ->dehydrated(true)
-                                    ->default(0),
+                                    ->content(function ($get) {
+                                        $amount = floatval($get('amount') ?? 0);
+                                        $paid = floatval($get('amount_paid') ?? 0);
+                                        $balance = $amount - $paid;
+                                        return 'KES ' . number_format($balance, 2);
+                                    }),
                             ]),
                         
                         Grid::make(2)
@@ -142,35 +144,115 @@ class InvoiceForm
                             ->columnSpanFull()
                             ->helperText('Additional notes or comments about this invoice'),
                     ]),
+                
+                Section::make('Student Information')
+                    ->description('Student details for reference')
+                    ->icon('heroicon-o-user')
+                    ->collapsible()
+                    ->collapsed()
+                    ->schema([
+                        Placeholder::make('student_name')
+                            ->label('Student Name')
+                            ->content(function ($get) {
+                                $studentId = $get('student_id');
+                                if ($studentId) {
+                                    $student = Student::find($studentId);
+                                    return $student ? $student->first_name . ' ' . $student->last_name : '-';
+                                }
+                                return 'Select a student';
+                            }),
+                        
+                        Placeholder::make('student_class')
+                            ->label('Class')
+                            ->content(function ($get) {
+                                $studentId = $get('student_id');
+                                if ($studentId) {
+                                    $student = Student::with('class')->find($studentId);
+                                    return $student && $student->class ? $student->class->class_code : '-';
+                                }
+                                return 'Select a student';
+                            }),
+                    ]),
             ]);
     }
     
-    protected static function calculateInvoiceAmount($set, $get)
+    protected static function generateInvoiceNumber(): string
     {
-        $feeStructureId = $get('fees_structure_id');
-        $term = $get('term');
+        $year = date('Y');
         
-        if ($feeStructureId && $term) {
-            $feeStructure = FeeStructure::find($feeStructureId);
-            if ($feeStructure && $feeStructure->payment_plan) {
-                foreach ($feeStructure->payment_plan as $installment) {
-                    if ($installment['term'] === $term) {
-                        $set('amount', $installment['amount']);
-                        static::updateBalance($set, $get);
-                        break;
-                    }
+        // Get the last invoice number for this year
+        $lastInvoice = Invoice::where('invoice_number', 'like', "INV/{$year}/%")
+            ->orderBy('id', 'desc')
+            ->first();
+        
+        if ($lastInvoice && $lastInvoice->invoice_number) {
+            // Extract the number from the last invoice
+            preg_match('/INV\/' . $year . '\/(\d+)/', $lastInvoice->invoice_number, $matches);
+            if (isset($matches[1])) {
+                $lastNumber = (int)$matches[1];
+                $newNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
+            } else {
+                $newNumber = '0001';
+            }
+        } else {
+            $newNumber = '0001';
+        }
+        
+        // Ensure uniqueness (just in case)
+        $invoiceNumber = "INV/{$year}/{$newNumber}";
+        
+        // Check if this invoice number already exists and increment if needed
+        while (Invoice::where('invoice_number', $invoiceNumber)->exists()) {
+            $newNumber = str_pad((int)$newNumber + 1, 4, '0', STR_PAD_LEFT);
+            $invoiceNumber = "INV/{$year}/{$newNumber}";
+        }
+        
+        return $invoiceNumber;
+    }
+    
+    protected static function loadStudentDetails($set, $get)
+    {
+        $studentId = $get('student_id');
+        if ($studentId) {
+            $student = Student::with('class')->find($studentId);
+            if ($student && $student->class) {
+                $feeStructure = FeeStructure::where('class_id', $student->class_id)
+                    ->where('is_active', true)
+                    ->first();
+                
+                if ($feeStructure) {
+                    $set('fee_structure_id', $feeStructure->id);
+                    static::calculateInvoiceAmount($set, $get);
                 }
-            } elseif ($feeStructure) {
-                $set('amount', round($feeStructure->total_fees / 3, 2));
-                static::updateBalance($set, $get);
             }
         }
     }
     
-    protected static function updateBalance($set, $get)
+    protected static function calculateInvoiceAmount($set, $get)
     {
-        $amount = floatval($get('amount') ?? 0);
-        $paid = floatval($get('amount_paid') ?? 0);
-        $set('balance', $amount - $paid);
+        $feeStructureId = $get('fee_structure_id');
+        $term = $get('term');
+        
+        if ($feeStructureId && $term) {
+            $feeStructure = FeeStructure::find($feeStructureId);
+            if ($feeStructure) {
+                if ($feeStructure->payment_plan && is_array($feeStructure->payment_plan) && count($feeStructure->payment_plan) > 0) {
+                    foreach ($feeStructure->payment_plan as $plan) {
+                        if (isset($plan['term']) && $plan['term'] === $term) {
+                            $set('amount', $plan['amount']);
+                            return;
+                        }
+                    }
+                }
+                
+                $totalFees = $feeStructure->tuition_fees + $feeStructure->activity_fees + 
+                             $feeStructure->library_fees + $feeStructure->sports_fees + 
+                             $feeStructure->medical_fees + $feeStructure->transport_fees + 
+                             $feeStructure->boarding_fees + $feeStructure->uniform_fees + 
+                             $feeStructure->other_fees;
+                
+                $set('amount', round($totalFees / 3, 2));
+            }
+        }
     }
 }

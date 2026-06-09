@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('payments', function (Blueprint $table) {
             $table->id();
             $table->uuid('idempotency_key')->unique(); // For duplicate prevention
-            $table->foreignId('invoice_id')->constrained();
+            $table->foreignId('invoice_id')->nullable()->constrained()->onDelete('set null');
             $table->foreignId('student_id')->constrained();
             $table->foreignId('parent_id')->nullable()->constrained('parents');
             $table->decimal('amount', 10, 2);

@@ -34,7 +34,11 @@ class AcademicYearSeeder extends Seeder
         ];
 
         foreach ($years as $year) {
-            AcademicYears::create($year);
+            AcademicYears::updateOrCreate(
+                ['name' => $year['name']],  // Find by name
+                $year                       // Update or create with these values
+            );
         }
+         $this->command->info('Academic years seeded successfully.');
     }
 }

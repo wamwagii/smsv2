@@ -47,15 +47,16 @@ class FeeStructuresTable
                     ->sortable()
                     ->weight('bold')
                     ->color('success'),
-               BadgeColumn::make('payment_installments_count')
-    ->label('Installments')
-    ->getStateUsing(fn ($record) => is_array($record->payment_plan) ? count($record->payment_plan) : 0)
-    ->colors([
-        'success' => fn ($state) => $state === 3,
-        'warning' => fn ($state) => $state > 0 && $state < 3,
-        'danger' => fn ($state) => $state === 0,
-    ])
-    ->formatStateUsing(fn ($state) => $state . ' term' . ($state !== 1 ? 's' : '')),
+                
+                BadgeColumn::make('payment_installments_count')
+                    ->label('Installments')
+                    ->getStateUsing(fn ($record) => is_array($record->payment_plan) ? count($record->payment_plan) : 0)
+                    ->colors([
+                        'success' => fn ($state) => $state === 3,
+                        'warning' => fn ($state) => $state > 0 && $state < 3,
+                        'danger' => fn ($state) => $state === 0,
+                    ])
+                    ->formatStateUsing(fn ($state) => $state . ' term' . ($state !== 1 ? 's' : '')),
                 
                 IconColumn::make('is_active')
                     ->label('Active')
@@ -114,6 +115,14 @@ class FeeStructuresTable
                     ->color('warning')
                     ->icon('heroicon-o-pencil'),
                 
+                // Print single fee structure
+                Action::make('print')
+                    ->label('Print')
+                    ->icon('heroicon-o-printer')
+                    ->color('gray')
+                    ->url(fn ($record) => route('fee-structures.print', $record))
+                    ->openUrlInNewTab(),
+                
                 Action::make('duplicate')
                     ->label('Duplicate')
                     ->icon('heroicon-o-document-duplicate')
@@ -166,6 +175,20 @@ class FeeStructuresTable
                                 ->success()
                                 ->send();
                         }),
+                    
+                    // Print selected fee structures
+                    BulkAction::make('print_selected')
+                        ->label('Print Selected')
+                        ->icon('heroicon-o-printer')
+                        ->color('info')
+                        ->requiresConfirmation()
+                        ->modalHeading('Print Selected Fee Structures')
+                        ->modalDescription('This will generate a PDF with all selected fee structures.')
+                        ->action(function (Collection $records) {
+                            // Store selected IDs in session or create a temporary view
+                            $ids = $records->pluck('id')->implode(',');
+                            return redirect()->route('fee-structures.print-selected', ['ids' => $ids]);
+                        }),
                 ]),
             ])
             ->headerActions([
@@ -174,6 +197,14 @@ class FeeStructuresTable
                     ->icon('heroicon-o-plus')
                     ->color('primary')
                     ->url(route('filament.admin.resources.fee-structures.create')),
+                
+                // Print all fee structures
+                Action::make('print_all')
+                    ->label('Print All')
+                    ->icon('heroicon-o-printer')
+                    ->color('gray')
+                    ->url(route('fee-structures.print-all'))
+                    ->openUrlInNewTab(),
             ])
             ->defaultSort('academic_year_id', 'desc')
             ->searchable()

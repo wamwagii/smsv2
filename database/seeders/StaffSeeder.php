@@ -175,7 +175,12 @@ class StaffSeeder extends Seeder
         ];
 
         foreach ($staff as $member) {
-            Staff::create($member);
+            Staff::updateOrCreate(
+                ['staff_number' => $member['staff_number']],
+                $member
+            );
         }
+        
+        $this->command->info('Staff seeded successfully.');
     }
 }

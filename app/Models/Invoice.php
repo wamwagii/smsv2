@@ -11,11 +11,10 @@ class Invoice extends Model
     protected $fillable = [
         'invoice_number',
         'student_id',
-        'fees_structure_id',
+        'fee_structure_id',
         'term',
         'amount',
         'amount_paid',
-        'balance',
         'due_date',
         'status',
         'notes',
@@ -24,7 +23,6 @@ class Invoice extends Model
     protected $casts = [
         'amount' => 'decimal:2',
         'amount_paid' => 'decimal:2',
-        'balance' => 'decimal:2',
         'due_date' => 'date',
     ];
     
@@ -51,25 +49,37 @@ class Invoice extends Model
     {
         $year = date('Y');
         
-        // Get the last invoice number for this year
-        $lastInvoice = self::whereYear('created_at', $year)
-            ->orderBy('id', 'desc')
-            ->first();
-        
-        if ($lastInvoice && $lastInvoice->invoice_number) {
-            // Extract the sequential number from the last invoice
-            preg_match('/INV\/' . $year . '\/(\d+)/', $lastInvoice->invoice_number, $matches);
-            if (isset($matches[1])) {
-                $lastNumber = (int)$matches[1];
-                $newNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
+        // Use a lock to prevent race conditions
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($year) {
+            // Get the last invoice number for this year with lock
+            $lastInvoice = self::where('invoice_number', 'like', "INV/{$year}/%")
+                ->lockForUpdate()
+                ->orderBy('invoice_number', 'desc')
+                ->first();
+            
+            if ($lastInvoice && $lastInvoice->invoice_number) {
+                // Extract the sequential number from the last invoice
+                preg_match('/INV\/' . $year . '\/(\d+)/', $lastInvoice->invoice_number, $matches);
+                if (isset($matches[1])) {
+                    $lastNumber = (int)$matches[1];
+                    $newNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
+                } else {
+                    $newNumber = '0001';
+                }
             } else {
                 $newNumber = '0001';
             }
-        } else {
-            $newNumber = '0001';
-        }
-        
-        return "INV/{$year}/{$newNumber}";
+            
+            $invoiceNumber = "INV/{$year}/{$newNumber}";
+            
+            // Double-check uniqueness (shouldn't be needed with lock, but safe)
+            while (self::where('invoice_number', $invoiceNumber)->exists()) {
+                $newNumber = str_pad((int)$newNumber + 1, 4, '0', STR_PAD_LEFT);
+                $invoiceNumber = "INV/{$year}/{$newNumber}";
+            }
+            
+            return $invoiceNumber;
+        });
     }
     
     /**
@@ -81,26 +91,33 @@ class Invoice extends Model
         $year = date('Y');
         $month = date('m');
         
-        // Get the last invoice number for this year and month
-        $lastInvoice = self::whereYear('created_at', $year)
-            ->whereMonth('created_at', $month)
-            ->orderBy('id', 'desc')
-            ->first();
-        
-        if ($lastInvoice && $lastInvoice->invoice_number) {
-            // Extract the sequential number from the last invoice
-            preg_match('/INV\/' . $year . '\/' . $month . '-(\d+)/', $lastInvoice->invoice_number, $matches);
-            if (isset($matches[1])) {
-                $lastNumber = (int)$matches[1];
-                $newNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($year, $month) {
+            $lastInvoice = self::where('invoice_number', 'like', "INV/{$year}/{$month}-%")
+                ->lockForUpdate()
+                ->orderBy('invoice_number', 'desc')
+                ->first();
+            
+            if ($lastInvoice && $lastInvoice->invoice_number) {
+                preg_match('/INV\/' . $year . '\/' . $month . '-(\d+)/', $lastInvoice->invoice_number, $matches);
+                if (isset($matches[1])) {
+                    $lastNumber = (int)$matches[1];
+                    $newNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
+                } else {
+                    $newNumber = '0001';
+                }
             } else {
                 $newNumber = '0001';
             }
-        } else {
-            $newNumber = '0001';
-        }
-        
-        return "INV/{$year}/{$month}-{$newNumber}";
+            
+            $invoiceNumber = "INV/{$year}/{$month}-{$newNumber}";
+            
+            while (self::where('invoice_number', $invoiceNumber)->exists()) {
+                $newNumber = str_pad((int)$newNumber + 1, 4, '0', STR_PAD_LEFT);
+                $invoiceNumber = "INV/{$year}/{$month}-{$newNumber}";
+            }
+            
+            return $invoiceNumber;
+        });
     }
     
     /**
@@ -114,7 +131,7 @@ class Invoice extends Model
     /**
      * Get the fee structure associated with the invoice
      */
-    public function feesStructure()
+    public function feeStructure()
     {
         return $this->belongsTo(FeeStructure::class);
     }
@@ -128,17 +145,18 @@ class Invoice extends Model
     }
     
     /**
-     * Update balance when payment is made
+     * Update invoice when payment is made (balance is auto-calculated by DB)
      */
-    public function updateBalance()
+    public function updateAfterPayment()
     {
         $totalPaid = $this->payments()->where('status', 'completed')->sum('amount');
-        $this->amount_paid = $totalPaid;
-        $this->balance = $this->amount - $totalPaid;
         
-        if ($this->balance <= 0) {
+        $this->amount_paid = $totalPaid;
+        
+        // Determine new status based on amount_paid vs amount
+        if ($totalPaid >= $this->amount) {
             $this->status = 'paid';
-        } elseif ($this->amount_paid > 0) {
+        } elseif ($totalPaid > 0) {
             $this->status = 'partially_paid';
         } elseif ($this->due_date && $this->due_date->isPast()) {
             $this->status = 'overdue';
@@ -146,12 +164,15 @@ class Invoice extends Model
             $this->status = 'pending';
         }
         
-        $this->saveQuietly(); // Use saveQuietly to avoid infinite loops
+        // Note: balance is NOT updated here - it's a generated column in the database
+        // The database automatically calculates balance = amount - amount_paid
+        
+        $this->saveQuietly();
         return $this;
     }
     
     /**
-     * Get the formatted invoice number with prefix (accessor)
+     * Get the formatted invoice number (accessor)
      */
     public function getFormattedInvoiceNumberAttribute(): string
     {
@@ -159,11 +180,19 @@ class Invoice extends Model
     }
     
     /**
+     * Get the balance (accessor that calculates from database values)
+     */
+    public function getBalanceAttribute(): float
+    {
+        return $this->amount - $this->amount_paid;
+    }
+    
+    /**
      * Get the balance in KES format
      */
     public function getBalanceFormattedAttribute(): string
     {
-        return 'KES ' . number_format($this->balance, 2);
+        return 'KES ' . number_format($this->getBalanceAttribute(), 2);
     }
     
     /**

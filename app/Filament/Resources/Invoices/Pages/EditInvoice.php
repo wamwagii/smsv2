@@ -18,4 +18,13 @@ class EditInvoice extends EditRecord
             DeleteAction::make(),
         ];
     }
+
+     //Redirect to invoice page after creation
+    protected function getRedirectUrl(): string
+
+    {       
+    
+    return $this->getResource()::getUrl('index');
+    
+    }
 }

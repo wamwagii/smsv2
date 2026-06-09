@@ -8,4 +8,13 @@ use Filament\Resources\Pages\CreateRecord;
 class CreateInvoice extends CreateRecord
 {
     protected static string $resource = InvoiceResource::class;
+
+    //Redirect to invoice page after creation
+    protected function getRedirectUrl(): string
+
+    {       
+    
+    return $this->getResource()::getUrl('index');
+    
+    }
 }

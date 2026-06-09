@@ -4,6 +4,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class Payment extends Model
 {
@@ -54,6 +57,13 @@ class Payment extends Model
             }
         });
         
+        // After payment is created or updated, update the invoice
+        static::saved(function ($payment) {
+            if ($payment->invoice) {
+                $payment->invoice->updateAfterPayment();
+            }
+        });
+        
         // Send notification when payment status changes to completed
         static::updated(function ($payment) {
             if ($payment->wasChanged('status') && $payment->status === 'completed') {
@@ -63,33 +73,43 @@ class Payment extends Model
     }
     
     /**
-     * Generate a unique receipt number
+     * Generate a unique receipt number with transaction lock to prevent duplicates
      * Format: RCT/YYYY/XXXXX (e.g., RCT/2024/00001)
      */
     public static function generateReceiptNumber(): string
     {
         $year = date('Y');
         
-        // Get the last receipt number for this year
-        $lastPayment = self::whereYear('payment_date', $year)
-            ->whereNotNull('receipt_number')
-            ->orderBy('id', 'desc')
-            ->first();
-        
-        if ($lastPayment && $lastPayment->receipt_number) {
-            // Extract the sequential number from the last receipt
-            preg_match('/RCT\/' . $year . '\/(\d+)/', $lastPayment->receipt_number, $matches);
-            if (isset($matches[1])) {
-                $lastNumber = (int)$matches[1];
-                $newNumber = str_pad($lastNumber + 1, 5, '0', STR_PAD_LEFT);
+        return DB::transaction(function () use ($year) {
+            // Get the last receipt number for this year with lock
+            $lastPayment = self::where('receipt_number', 'like', "RCT/{$year}/%")
+                ->lockForUpdate()
+                ->orderBy('receipt_number', 'desc')
+                ->first();
+            
+            if ($lastPayment && $lastPayment->receipt_number) {
+                // Extract the sequential number from the last receipt
+                preg_match('/RCT\/' . $year . '\/(\d+)/', $lastPayment->receipt_number, $matches);
+                if (isset($matches[1])) {
+                    $lastNumber = (int)$matches[1];
+                    $newNumber = str_pad($lastNumber + 1, 5, '0', STR_PAD_LEFT);
+                } else {
+                    $newNumber = '00001';
+                }
             } else {
                 $newNumber = '00001';
             }
-        } else {
-            $newNumber = '00001';
-        }
-        
-        return "RCT/{$year}/{$newNumber}";
+            
+            $receiptNumber = "RCT/{$year}/{$newNumber}";
+            
+            // Double-check uniqueness
+            while (self::where('receipt_number', $receiptNumber)->exists()) {
+                $newNumber = str_pad((int)$newNumber + 1, 5, '0', STR_PAD_LEFT);
+                $receiptNumber = "RCT/{$year}/{$newNumber}";
+            }
+            
+            return $receiptNumber;
+        });
     }
     
     /**
@@ -101,15 +121,20 @@ class Payment extends Model
         $student = $this->student;
         
         if ($guardian && $guardian->email) {
-            // Generate PDF receipt
-            $pdfPath = $this->generateReceiptPdf();
-            
-            // Send email notification
-            \Mail::to($guardian->email)->send(new \App\Mail\PaymentReceiptMail($this, $pdfPath));
-            
-            // Update receipt path
-            $this->receipt_path = $pdfPath;
-            $this->saveQuietly();
+            try {
+                // Generate PDF receipt
+                $pdfPath = $this->generateReceiptPdf();
+                
+                // Send email notification
+                Mail::to($guardian->email)->send(new \App\Mail\PaymentReceiptMail($this, $pdfPath));
+                
+                // Update receipt path
+                $this->receipt_path = $pdfPath;
+                $this->saveQuietly();
+            } catch (\Exception $e) {
+                // Log error but don't fail the payment
+                \Log::error('Failed to send payment notification: ' . $e->getMessage());
+            }
         }
     }
     
@@ -128,8 +153,8 @@ class Payment extends Model
         $path = 'receipts/' . $filename;
         $fullPath = storage_path('app/public/' . $path);
         
-        // Generate PDF using Laravel's PDF package
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.payment_receipt', [
+        // Generate PDF
+        $pdf = Pdf::loadView('pdf.payment_receipt', [
             'payment' => $this,
             'student' => $this->student,
             'guardian' => $this->parent,
@@ -141,6 +166,45 @@ class Payment extends Model
         return $path;
     }
     
+    /**
+     * Get the formatted amount
+     */
+    public function getFormattedAmountAttribute(): string
+    {
+        return 'KES ' . number_format($this->amount, 2);
+    }
+    
+    /**
+     * Get the payment method display name
+     */
+    public function getPaymentMethodDisplayAttribute(): string
+    {
+        return match($this->payment_method) {
+            'mpesa' => 'M-Pesa',
+            'bank_transfer' => 'Bank Transfer',
+            'cash' => 'Cash',
+            'cheque' => 'Cheque',
+            'card' => 'Card',
+            default => ucfirst($this->payment_method),
+        };
+    }
+    
+    /**
+     * Get the status display name with badge color
+     */
+    public function getStatusDisplayAttribute(): array
+    {
+        return match($this->status) {
+            'completed' => ['text' => 'Completed', 'color' => 'success'],
+            'pending' => ['text' => 'Pending', 'color' => 'warning'],
+            'processing' => ['text' => 'Processing', 'color' => 'info'],
+            'failed' => ['text' => 'Failed', 'color' => 'danger'],
+            'refunded' => ['text' => 'Refunded', 'color' => 'secondary'],
+            default => ['text' => ucfirst($this->status), 'color' => 'secondary'],
+        };
+    }
+    
+    // Relationships
     public function invoice()
     {
         return $this->belongsTo(Invoice::class);
@@ -156,6 +220,7 @@ class Payment extends Model
         return $this->belongsTo(Guardian::class, 'parent_id');
     }
     
+    // Scopes
     public function scopeCompleted($query)
     {
         return $query->where('status', 'completed');
@@ -164,5 +229,25 @@ class Payment extends Model
     public function scopePending($query)
     {
         return $query->where('status', 'pending');
+    }
+    
+    public function scopeForStudent($query, $studentId)
+    {
+        return $query->where('student_id', $studentId);
+    }
+    
+    public function scopeForDateRange($query, $startDate, $endDate)
+    {
+        return $query->whereBetween('payment_date', [$startDate, $endDate]);
+    }
+    
+    public function scopeMpesa($query)
+    {
+        return $query->where('payment_method', 'mpesa');
+    }
+    
+    public function scopeCash($query)
+    {
+        return $query->where('payment_method', 'cash');
     }
 }

@@ -102,7 +102,12 @@ class ParentSeeder extends Seeder
         ];
 
         foreach ($parents as $parent) {
-            Guardian::create($parent);
+            Guardian::updateOrCreate(
+                ['email' => $parent['email']],
+                $parent
+            );
         }
+        
+        $this->command->info('Parents seeded successfully.');
     }
 }

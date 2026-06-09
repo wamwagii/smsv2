@@ -18,4 +18,10 @@ class EditPayment extends EditRecord
             DeleteAction::make(),
         ];
     }
+
+    //Redirect to payments page after creation
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
+    }
 }
