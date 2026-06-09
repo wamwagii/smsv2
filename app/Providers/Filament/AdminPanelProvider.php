@@ -34,6 +34,8 @@ class AdminPanelProvider extends PanelProvider
             ->emailChangeVerification()
             ->profile()
             ->sidebarCollapsibleOnDesktop()
+            ->unsavedChangesAlerts()
+            ->databaseNotifications()
             ->colors([
                 'primary' => Color::Amber,
             ])

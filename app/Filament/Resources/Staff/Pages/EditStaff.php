@@ -1,0 +1,27 @@
+<?php
+
+namespace App\Filament\Resources\Staff\Pages;
+
+use App\Filament\Resources\Staff\StaffResource;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\ViewAction;
+use Filament\Resources\Pages\EditRecord;
+
+class EditStaff extends EditRecord
+{
+    protected static string $resource = StaffResource::class;
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            ViewAction::make(),
+            DeleteAction::make(),
+        ];
+    }
+
+    // Redirect to the staff list page after updating the staff member
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
+    }
+}
