@@ -6,13 +6,16 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\BadgeColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\Filter;
 use Filament\Forms\Components\DatePicker;
-use Filament\Tables\Table;
+use Filament\Notifications\Notification;
 use App\Models\Classes;
 use App\Models\AcademicYears;
 
@@ -22,7 +25,7 @@ class StudentsTable
     {
         return $table
             ->columns([
-                // Photo column - shows actual image instead of text
+                // Photo column
                 ImageColumn::make('photo')
                     ->label('Photo')
                     ->circular()
@@ -32,7 +35,7 @@ class StudentsTable
                         return 'https://ui-avatars.com/api/?background=4F46E5&color=fff&name=' . urlencode($record->first_name . ' ' . $record->last_name);
                     }),
                 
-                // Admission Number - made more prominent
+                // Admission Number
                 TextColumn::make('admission_number')
                     ->label('Admission No.')
                     ->searchable()
@@ -42,7 +45,7 @@ class StudentsTable
                     ->weight('bold')
                     ->color('primary'),
                 
-                // Full name combined for better display
+                // Full name combined
                 TextColumn::make('full_name')
                     ->label('Full Name')
                     ->getStateUsing(fn ($record) => trim($record->first_name . ' ' . ($record->middle_name ? $record->middle_name . ' ' : '') . $record->last_name))
@@ -50,7 +53,7 @@ class StudentsTable
                     ->sortable(['first_name', 'last_name'])
                     ->weight('semibold'),
                 
-                // Individual name fields (toggleable)
+                // Individual name fields (hidden by default)
                 TextColumn::make('first_name')
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
@@ -63,7 +66,7 @@ class StudentsTable
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 
-                // Date of Birth with age calculation
+                // Date of Birth
                 TextColumn::make('date_of_birth')
                     ->label('DOB')
                     ->date('d/m/Y')
@@ -71,7 +74,7 @@ class StudentsTable
                     ->toggleable()
                     ->description(fn ($record) => $record->date_of_birth ? \Carbon\Carbon::parse($record->date_of_birth)->age . ' yrs' : ''),
                 
-                // Gender with badge
+                // Gender (no icons)
                 BadgeColumn::make('gender')
                     ->label('Gender')
                     ->colors([
@@ -79,14 +82,11 @@ class StudentsTable
                         'danger' => 'female',
                         'gray' => 'other',
                     ])
-                    ->icons([
-                        'heroicon-o-mars' => 'male',
-                        'heroicon-o-venus' => 'female',
-                    ])
+                    ->formatStateUsing(fn ($state) => ucfirst($state))
                     ->sortable()
                     ->toggleable(),
                 
-                // Class relationship (shows class code instead of ID)
+                // Class
                 TextColumn::make('class.class_code')
                     ->label('Class')
                     ->searchable()
@@ -95,14 +95,14 @@ class StudentsTable
                     ->color('success')
                     ->toggleable(),
                 
-                // Academic Year relationship
+                // Academic Year
                 TextColumn::make('academicYear.name')
                     ->label('Academic Year')
                     ->searchable()
                     ->sortable()
                     ->toggleable(),
                 
-                // Contact information group
+                // Contact
                 TextColumn::make('phone_number')
                     ->label('Phone')
                     ->searchable()
@@ -115,7 +115,7 @@ class StudentsTable
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->copyable(),
                 
-                // Status with badge
+                // Status (no icons)
                 BadgeColumn::make('status')
                     ->label('Status')
                     ->colors([
@@ -125,11 +125,7 @@ class StudentsTable
                         'gray' => 'transferred',
                         'dark' => 'expelled',
                     ])
-                    ->icons([
-                        'heroicon-o-check-circle' => 'active',
-                        'heroicon-o-academic-cap' => 'alumni',
-                        'heroicon-o-exclamation-circle' => 'suspended',
-                    ])
+                    ->formatStateUsing(fn ($state) => ucfirst($state))
                     ->sortable()
                     ->toggleable(),
                 
@@ -139,7 +135,7 @@ class StudentsTable
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 
-                // Parent/Guardian information (toggleable by default)
+                // Parent information
                 TextColumn::make('father_name')
                     ->label('Father')
                     ->searchable()
@@ -160,12 +156,7 @@ class StudentsTable
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 
-                TextColumn::make('guardian_name')
-                    ->label('Guardian')
-                    ->searchable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-                
-                // KCSE/KCPE information (toggleable)
+                // KCPE info
                 TextColumn::make('kcpse_index_number')
                     ->label('KCPSE Index')
                     ->searchable()
@@ -221,7 +212,6 @@ class StudentsTable
                     ->color('danger'),
             ])
             ->filters([
-                // Filter by status
                 SelectFilter::make('status')
                     ->label('Status')
                     ->options([
@@ -233,7 +223,6 @@ class StudentsTable
                     ])
                     ->placeholder('All Students'),
                 
-                // Filter by gender
                 SelectFilter::make('gender')
                     ->options([
                         'male' => 'Male',
@@ -241,21 +230,18 @@ class StudentsTable
                         'other' => 'Other',
                     ]),
                 
-                // Filter by class
                 SelectFilter::make('class_id')
                     ->label('Class')
                     ->relationship('class', 'class_code')
                     ->searchable()
                     ->preload(),
                 
-                // Filter by academic year
                 SelectFilter::make('academic_year_id')
                     ->label('Academic Year')
                     ->relationship('academicYear', 'name')
                     ->searchable()
                     ->preload(),
                 
-                // Filter by enrollment date range
                 Filter::make('enrollment_date_range')
                     ->form([
                         DatePicker::make('enrolled_from')
@@ -265,38 +251,10 @@ class StudentsTable
                     ])
                     ->query(function ($query, array $data) {
                         return $query
-                            ->when(
-                                $data['enrolled_from'],
-                                fn ($query) => $query->whereDate('enrollment_date', '>=', $data['enrolled_from']),
-                            )
-                            ->when(
-                                $data['enrolled_until'],
-                                fn ($query) => $query->whereDate('enrollment_date', '<=', $data['enrolled_until']),
-                            );
+                            ->when($data['enrolled_from'], fn ($query) => $query->whereDate('enrollment_date', '>=', $data['enrolled_from']))
+                            ->when($data['enrolled_until'], fn ($query) => $query->whereDate('enrollment_date', '<=', $data['enrolled_until']));
                     }),
                 
-                // Filter by date of birth range
-                Filter::make('dob_range')
-                    ->label('Date of Birth Range')
-                    ->form([
-                        DatePicker::make('dob_from')
-                            ->label('Born After'),
-                        DatePicker::make('dob_until')
-                            ->label('Born Before'),
-                    ])
-                    ->query(function ($query, array $data) {
-                        return $query
-                            ->when(
-                                $data['dob_from'],
-                                fn ($query) => $query->whereDate('date_of_birth', '>=', $data['dob_from']),
-                            )
-                            ->when(
-                                $data['dob_until'],
-                                fn ($query) => $query->whereDate('date_of_birth', '<=', $data['dob_until']),
-                            );
-                    }),
-                
-                // Filter for deleted records (soft deletes)
                 Filter::make('trashed')
                     ->label('Deleted Records')
                     ->toggle()
@@ -323,12 +281,9 @@ class StudentsTable
                 BulkActionGroup::make([
                     DeleteBulkAction::make()
                         ->label('Delete Selected')
-                        ->requiresConfirmation()
-                        ->modalHeading('Delete Students')
-                        ->modalDescription('Are you sure you want to delete these students? This action cannot be undone.'),
+                        ->requiresConfirmation(),
                     
-                    // Bulk action to change status
-                    \Filament\Actions\BulkAction::make('change_status')
+                    BulkAction::make('change_status')
                         ->label('Change Status')
                         ->icon('heroicon-o-tag')
                         ->color('warning')
@@ -346,14 +301,13 @@ class StudentsTable
                         ])
                         ->action(function (array $data, \Illuminate\Database\Eloquent\Collection $records) {
                             $records->each->update(['status' => $data['status']]);
-                            \Filament\Notifications\Notification::make()
+                            Notification::make()
                                 ->title('Status updated for ' . $records->count() . ' students')
                                 ->success()
                                 ->send();
                         }),
                     
-                    // Bulk action to change class
-                    \Filament\Actions\BulkAction::make('change_class')
+                    BulkAction::make('change_class')
                         ->label('Change Class')
                         ->icon('heroicon-o-academic-cap')
                         ->color('info')
@@ -366,36 +320,25 @@ class StudentsTable
                         ])
                         ->action(function (array $data, \Illuminate\Database\Eloquent\Collection $records) {
                             $records->each->update(['class_id' => $data['class_id']]);
-                            \Filament\Notifications\Notification::make()
+                            Notification::make()
                                 ->title('Class changed for ' . $records->count() . ' students')
                                 ->success()
                                 ->send();
                         }),
-                    
-                    // Export bulk action
-                    \Filament\Actions\ExportBulkAction::make()
-                        ->label('Export Selected')
-                        ->exporter(\App\Filament\Exports\StudentExporter::class),
                 ]),
             ])
             ->headerActions([
-                \Filament\Actions\Action::make('create')
+                Action::make('create')
                     ->label('New Student')
                     ->icon('heroicon-o-plus')
                     ->color('primary')
                     ->url(route('filament.admin.resources.students.create')),
-                
-                \Filament\Actions\ExportAction::make()
-                    ->label('Export All')
-                    ->exporter(\App\Filament\Exports\StudentExporter::class)
-                    ->icon('heroicon-o-document-arrow-down'),
             ])
             ->defaultSort('admission_number', 'desc')
             ->searchable()
             ->persistFiltersInSession()
-            ->persistSearchInSession()
             ->striped()
-            ->paginated([10, 25, 50, 100, 'all'])
+            ->paginated([10, 25, 50, 100])
             ->defaultPaginationPageOption(25);
     }
 }

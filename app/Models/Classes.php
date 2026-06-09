@@ -29,8 +29,26 @@ class Classes extends Model
         return $this->hasMany(Student::class);
     }
     
-    public function classTeacher()
+    public function feeStructure()
     {
-        return $this->belongsTo(Staff::class, 'class_teacher_id');
+        return $this->hasOne(FeeStructure::class);
+    }
+    
+    // Helper method to get grade level
+    public function getGradeLevelAttribute()
+    {
+        return $this->level;
+    }
+    
+    // Scope for active classes
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+    
+    // Scope for a specific grade
+    public function scopeGrade($query, $level)
+    {
+        return $query->where('level', $level);
     }
 }

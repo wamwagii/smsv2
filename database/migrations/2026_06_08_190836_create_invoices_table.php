@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->string('invoice_number', 50)->unique(); // INV/2024/001
             $table->foreignId('student_id')->constrained();
-            $table->foreignId('fees_structure_id')->constrained('fees_structures');
+            $table->foreignId('fee_structure_id')->constrained('fee_structures');
             $table->enum('term', ['term_1', 'term_2', 'term_3']);
             $table->decimal('amount', 10, 2);
             $table->decimal('amount_paid', 10, 2)->default(0);

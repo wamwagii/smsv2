@@ -4,7 +4,6 @@ namespace App\Filament\Resources\FeeStructures\Schemas;
 
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Grid;
-use Filament\Schemas\Components\Fieldset;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Toggle;
@@ -22,18 +21,21 @@ class FeeStructureForm
             ->columns(1)
             ->components([
                 Section::make('Fee Structure Information')
-                    ->description('Set fees for a specific class and academic year')
+                    ->description('Set fees for a specific grade and academic year')
                     ->icon('heroicon-o-currency-dollar')
                     ->schema([
                         Grid::make(2)
                             ->schema([
                                 Select::make('class_id')
-                                    ->label('Class')
-                                    ->relationship('class', 'class_code')
+                                    ->label('Grade')
+                                    ->options(function () {
+                                        return Classes::orderBy('level')->get()
+                                            ->mapWithKeys(fn($class) => [$class->id => 'Grade ' . $class->level]);
+                                    })
                                     ->required()
                                     ->searchable()
                                     ->preload()
-                                    ->helperText('Select the class for this fee structure'),
+                                    ->helperText('Select the grade level for this fee structure'),
                                 
                                 Select::make('academic_year_id')
                                     ->label('Academic Year')
@@ -47,111 +49,107 @@ class FeeStructureForm
                                     ->helperText('Select the academic year'),
                             ]),
                         
-                        Fieldset::make('Fee Components')
-                            ->label('Fee Breakdown')
+                        Grid::make(2)
                             ->schema([
-                                Grid::make(2)
-                                    ->schema([
-                                        TextInput::make('tuition_fees')
-                                            ->label('Tuition Fees')
-                                            ->numeric()
-                                            ->prefix('KES')
-                                            ->required()
-                                            ->default(0)
-                                            ->minValue(0)
-                                            ->live()
-                                            ->afterStateUpdated(function ($set, $get) {
-                                                static::calculateTotal($set, $get);
-                                            }),
-                                        
-                                        TextInput::make('activity_fees')
-                                            ->label('Activity Fees')
-                                            ->numeric()
-                                            ->prefix('KES')
-                                            ->default(0)
-                                            ->minValue(0)
-                                            ->live()
-                                            ->afterStateUpdated(function ($set, $get) {
-                                                static::calculateTotal($set, $get);
-                                            }),
-                                        
-                                        TextInput::make('library_fees')
-                                            ->label('Library Fees')
-                                            ->numeric()
-                                            ->prefix('KES')
-                                            ->default(0)
-                                            ->minValue(0)
-                                            ->live()
-                                            ->afterStateUpdated(function ($set, $get) {
-                                                static::calculateTotal($set, $get);
-                                            }),
-                                        
-                                        TextInput::make('sports_fees')
-                                            ->label('Sports Fees')
-                                            ->numeric()
-                                            ->prefix('KES')
-                                            ->default(0)
-                                            ->minValue(0)
-                                            ->live()
-                                            ->afterStateUpdated(function ($set, $get) {
-                                                static::calculateTotal($set, $get);
-                                            }),
-                                        
-                                        TextInput::make('medical_fees')
-                                            ->label('Medical Fees')
-                                            ->numeric()
-                                            ->prefix('KES')
-                                            ->default(0)
-                                            ->minValue(0)
-                                            ->live()
-                                            ->afterStateUpdated(function ($set, $get) {
-                                                static::calculateTotal($set, $get);
-                                            }),
-                                        
-                                        TextInput::make('transport_fees')
-                                            ->label('Transport Fees')
-                                            ->numeric()
-                                            ->prefix('KES')
-                                            ->default(0)
-                                            ->minValue(0)
-                                            ->live()
-                                            ->afterStateUpdated(function ($set, $get) {
-                                                static::calculateTotal($set, $get);
-                                            }),
-                                        
-                                        TextInput::make('boarding_fees')
-                                            ->label('Boarding Fees')
-                                            ->numeric()
-                                            ->prefix('KES')
-                                            ->default(0)
-                                            ->minValue(0)
-                                            ->live()
-                                            ->afterStateUpdated(function ($set, $get) {
-                                                static::calculateTotal($set, $get);
-                                            }),
-                                        
-                                        TextInput::make('uniform_fees')
-                                            ->label('Uniform Fees')
-                                            ->numeric()
-                                            ->prefix('KES')
-                                            ->default(0)
-                                            ->minValue(0)
-                                            ->live()
-                                            ->afterStateUpdated(function ($set, $get) {
-                                                static::calculateTotal($set, $get);
-                                            }),
-                                        
-                                        TextInput::make('other_fees')
-                                            ->label('Other Fees')
-                                            ->numeric()
-                                            ->prefix('KES')
-                                            ->default(0)
-                                            ->minValue(0)
-                                            ->live()
-                                            ->afterStateUpdated(function ($set, $get) {
-                                                static::calculateTotal($set, $get);
-                                            }),
-                                    ]),
+                                TextInput::make('tuition_fees')
+                                    ->label('Tuition Fees')
+                                    ->numeric()
+                                    ->prefix('KES')
+                                    ->required()
+                                    ->default(0)
+                                    ->minValue(0)
+                                    ->live()
+                                    ->afterStateUpdated(function ($set, $get) {
+                                        static::calculateTotal($set, $get);
+                                    }),
+                                
+                                TextInput::make('activity_fees')
+                                    ->label('Activity Fees')
+                                    ->numeric()
+                                    ->prefix('KES')
+                                    ->default(0)
+                                    ->minValue(0)
+                                    ->live()
+                                    ->afterStateUpdated(function ($set, $get) {
+                                        static::calculateTotal($set, $get);
+                                    }),
+                                
+                                TextInput::make('library_fees')
+                                    ->label('Library Fees')
+                                    ->numeric()
+                                    ->prefix('KES')
+                                    ->default(0)
+                                    ->minValue(0)
+                                    ->live()
+                                    ->afterStateUpdated(function ($set, $get) {
+                                        static::calculateTotal($set, $get);
+                                    }),
+                                
+                                TextInput::make('sports_fees')
+                                    ->label('Sports Fees')
+                                    ->numeric()
+                                    ->prefix('KES')
+                                    ->default(0)
+                                    ->minValue(0)
+                                    ->live()
+                                    ->afterStateUpdated(function ($set, $get) {
+                                        static::calculateTotal($set, $get);
+                                    }),
+                                
+                                TextInput::make('medical_fees')
+                                    ->label('Medical Fees')
+                                    ->numeric()
+                                    ->prefix('KES')
+                                    ->default(0)
+                                    ->minValue(0)
+                                    ->live()
+                                    ->afterStateUpdated(function ($set, $get) {
+                                        static::calculateTotal($set, $get);
+                                    }),
+                                
+                                TextInput::make('transport_fees')
+                                    ->label('Transport Fees')
+                                    ->numeric()
+                                    ->prefix('KES')
+                                    ->default(0)
+                                    ->minValue(0)
+                                    ->live()
+                                    ->afterStateUpdated(function ($set, $get) {
+                                        static::calculateTotal($set, $get);
+                                    }),
+                                
+                                TextInput::make('boarding_fees')
+                                    ->label('Boarding Fees')
+                                    ->numeric()
+                                    ->prefix('KES')
+                                    ->default(0)
+                                    ->minValue(0)
+                                    ->live()
+                                    ->afterStateUpdated(function ($set, $get) {
+                                        static::calculateTotal($set, $get);
+                                    }),
+                                
+                                TextInput::make('uniform_fees')
+                                    ->label('Uniform Fees')
+                                    ->numeric()
+                                    ->prefix('KES')
+                                    ->default(0)
+                                    ->minValue(0)
+                                    ->live()
+                                    ->afterStateUpdated(function ($set, $get) {
+                                        static::calculateTotal($set, $get);
+                                    }),
+                                
+                                TextInput::make('other_fees')
+                                    ->label('Other Fees')
+                                    ->numeric()
+                                    ->prefix('KES')
+                                    ->default(0)
+                                    ->minValue(0)
+                                    ->live()
+                                    ->afterStateUpdated(function ($set, $get) {
+                                        static::calculateTotal($set, $get);
+                                    }),
                             ]),
                         
                         Grid::make(2)
@@ -161,7 +159,7 @@ class FeeStructureForm
                                     ->numeric()
                                     ->prefix('KES')
                                     ->disabled()
-                                    ->dehydrated(true)
+                                    ->dehydrated(false) // Don't save this field, it's generated
                                     ->helperText('Automatically calculated from all fee components'),
                                 
                                 Toggle::make('is_active')
@@ -172,7 +170,7 @@ class FeeStructureForm
                     ]),
                 
                 Section::make('Payment Plan')
-                    ->description('Optional: Set up payment schedule (e.g., termly payments)')
+                    ->description('Set up payment schedule for the academic year')
                     ->icon('heroicon-o-calendar')
                     ->collapsible()
                     ->schema([
@@ -204,12 +202,14 @@ class FeeStructureForm
                                             ->minValue(0),
                                     ]),
                             ])
-                            ->columnSpanFull()
                             ->defaultItems(3)
                             ->maxItems(6)
+                            ->minItems(1)
                             ->addActionLabel('Add Installment')
-                            ->reorderable(false)
-                            ->helperText('Set up payment installments for the academic year (optional)'),
+                            ->reorderable(true)
+                            ->reorderableWithDragAndDrop(true)
+                            ->columnSpanFull()
+                            ->helperText('Set up payment installments for the academic year'),
                     ]),
             ]);
     }

@@ -47,16 +47,15 @@ class FeeStructuresTable
                     ->sortable()
                     ->weight('bold')
                     ->color('success'),
-                
-                BadgeColumn::make('payment_installments_count')
-                    ->label('Installments')
-                    ->getStateUsing(fn ($record) => $record->payment_plan ? count($record->payment_plan) : 0)
-                    ->colors([
-                        'success' => fn ($state) => $state === 3,
-                        'warning' => fn ($state) => $state > 0 && $state < 3,
-                        'danger' => fn ($state) => $state === 0,
-                    ])
-                    ->formatStateUsing(fn ($state) => $state . ' term' . ($state !== 1 ? 's' : '')),
+               BadgeColumn::make('payment_installments_count')
+    ->label('Installments')
+    ->getStateUsing(fn ($record) => is_array($record->payment_plan) ? count($record->payment_plan) : 0)
+    ->colors([
+        'success' => fn ($state) => $state === 3,
+        'warning' => fn ($state) => $state > 0 && $state < 3,
+        'danger' => fn ($state) => $state === 0,
+    ])
+    ->formatStateUsing(fn ($state) => $state . ' term' . ($state !== 1 ? 's' : '')),
                 
                 IconColumn::make('is_active')
                     ->label('Active')
