@@ -1,5 +1,30 @@
 # School Management System 
 
+
+
+## Screenshots
+
+### Onboarding Page
+![Onboarding](./Onboarding.png)
+
+### Login Page
+![Login](./Login.png)
+
+### Subjects Management
+![Subjects](./Subjects.png)
+
+### Invoices
+![Invoices](./Invoices.png)
+
+### Fee Structures
+![FeeStructures](./FeeStructures.png)
+
+### Academic Year Setup
+![AcademicYear](./AcademicYear.png)
+
+### Results Management
+![Results](./Results.png)
+
 # Features
 
 **Student Management** - Register, track, and manage student information with photos
