@@ -314,17 +314,6 @@ Payments: http://localhost:8000/admin/payments
 Results: http://localhost:8000/admin/results
 
 
-# Contributing
-Fork the repository
-
-Create your feature branch (git checkout -b feature/amazing-feature)
-
-Commit your changes (git commit -m 'Add some amazing feature')
-
-Push to the branch (git push origin feature/amazing-feature)
-
-Open a Pull Request
-
 # License
 This project is licensed under the MIT License.
 
@@ -343,24 +332,28 @@ Developed for Kenyan School Management - Supporting Grades 1-12 with M-Pesa inte
 
 # Technical Support
 This Software is Free and Open Source, Without any Warranty.
-
 Even if the software is free, Technical Support is NOT free.
 
 # Service	Price
 Technical Support (per issue)	$50 USD
-📱 Contact for Technical Support
+
+
+
+# Contact for Technical Support
 If you need paid technical support, contact me on Telegram:
 
 Telegram: t.me/wamwagii
 
-💬 Free Support
+# Free Support
 You can ask questions for free at:
 
 GitHub Discussions page
 
 Telegram Group (link available on request)
 
-Note: Please use free channels for general questions and troubleshooting. Paid support is only for:
+Note: Please use free channels for general questions and troubleshooting.
+
+# Paid support is only for:
 
 Custom feature development
 
