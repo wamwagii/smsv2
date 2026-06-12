@@ -1,20 +1,20 @@
  # School Management System
 
-## Features
+# Features
 
-- **Student Management** - Register, track, and manage student information with photos
-- **Staff Management** - Manage teachers and administrative staff
-- **Class Management** - Manage Grades 1-12 with multiple streams
-- **Subject Management** - Core and elective subjects with department allocation
-- **Fee Structure** - Configure term-based fee structures with payment plans
-- **Invoice System** - Auto-generated invoices with balance tracking
-- **Payment Processing** - M-Pesa, bank transfer, cash, cheque, and card payments
-- **Receipt Generation** - Auto-generated PDF receipts with email notifications
-- **Result Management** - Record and print student results with grade calculation
-- **Reporting** - Print fee structures, invoices, and receipts
-- **Parent Portal** - Parent/guardian association with students
+- Student Management - Register, track, and manage student information with photos
+- Staff Management - Manage teachers and administrative staff
+- Class Management - Manage Grades 1-12 with multiple streams
+- Subject Management - Core and elective subjects with department allocation
+- Fee Structure** - Configure term-based fee structures with payment plans
+- Invoice System - Auto-generated invoices with balance tracking
+- Payment Processing - M-Pesa, bank transfer, cash, cheque, and card payments
+- Receipt Generation - Auto-generated PDF receipts with email notifications
+- Result Management - Record and print student results with grade calculation
+- Reporting - Print fee structures, invoices, and receipts
+- Parent Portal - Parent/guardian association with students
 
-## Requirements
+# Requirements
 
 - PHP >= 8.2
 - Composer
@@ -22,9 +22,9 @@
 - SQLite (development) or PostgreSQL/MySQL (production)
 - Web server (Apache/Nginx) or PHP artisan serve
 
-## Installation Guide
+# Installation Guide
 
-### Step 1: Clone the Repository
+# Step 1: Clone the Repository
 
 ```bash
 git clone https://github.com/wamwagii/smsv2.git
@@ -43,12 +43,12 @@ bash
 cp .env.example .env
 Edit the .env file and update the database settings:
 
-env
-# For SQLite (Development)
+# env
+ For SQLite (Development)
 DB_CONNECTION=sqlite
 DB_DATABASE=/absolute/path/to/database/smsv2.sqlite
 
-# For PostgreSQL (Production)
+ For PostgreSQL (Production)
 DB_CONNECTION=pgsql
 DB_HOST=127.0.0.1
 DB_PORT=5432
