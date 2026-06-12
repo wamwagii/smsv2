@@ -342,7 +342,7 @@ Technical Support (per issue)	$50 USD
 # Contact for Technical Support
 If you need paid technical support, contact me on Telegram:
 
-Telegram: t.me/wamwagii
+Telegram: (https://t.me/wamwagii )
 
 # Free Support
 You can ask questions for free at:
