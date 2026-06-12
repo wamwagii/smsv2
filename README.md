@@ -22,9 +22,10 @@
 - SQLite (development) or PostgreSQL/MySQL (production)
 - Web server (Apache/Nginx) or PHP artisan serve
 
+
 # Installation Guide
 
-# Step 1: Clone the Repository
+ Step 1: Clone the Repository
 
 ```bash
 git clone https://github.com/wamwagii/smsv2.git
