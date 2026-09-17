@@ -9,14 +9,10 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Components\Textarea;
-use Filament\Forms\Components\Placeholder;
-use Filament\Forms\Components\Hidden;
+use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Schema;
 use App\Models\Invoice;
 use App\Models\Student;
-use App\Models\Guardian;
-use App\Models\Payment;
-use Illuminate\Support\Str;
 
 class PaymentForm
 {
@@ -29,221 +25,207 @@ class PaymentForm
                     ->description('Record student fee payment')
                     ->icon('heroicon-o-credit-card')
                     ->schema([
-                        Grid::make(2)
-                            ->schema([
-                                Hidden::make('student_id')
-                                    ->default(null),
-                                
-                                Select::make('student_id_select')
-                                    ->label('Student')
-                                    ->options(function () {
-                                        return Student::where('status', 'active')
-                                            ->get()
-                                            ->mapWithKeys(function ($student) {
-                                                return [$student->id => $student->admission_number . ' - ' . $student->first_name . ' ' . $student->last_name];
-                                            });
-                                    })
-                                    ->required()
-                                    ->searchable()
-                                    ->preload()
-                                    ->live()
-                                    ->afterStateUpdated(function ($set, $get) {
-                                        static::loadStudentData($set, $get);
-                                    })
-                                    ->helperText('Select the student making payment'),
-                                
-                                Select::make('invoice_id')
-                                    ->label('Invoice (Optional)')
-                                    ->options(function ($get) {
-                                        $studentId = $get('student_id_select');
-                                        if ($studentId) {
-                                            return Invoice::with('student')
-                                                ->where('student_id', $studentId)
-                                                ->where('status', '!=', 'paid')
-                                                ->get()
-                                                ->mapWithKeys(function ($invoice) {
-                                                    $balance = $invoice->amount - $invoice->amount_paid;
-                                                    return [$invoice->id => $invoice->invoice_number . ' (Balance: KES ' . number_format($balance, 2) . ')'];
-                                                });
+                        Grid::make(2)->schema([
+                            Select::make('student_id')
+                                ->label('Student')
+                                ->relationship('student', 'admission_number',
+                                    modifyQueryUsing: fn ($query) => $query->where('status', 'active')
+                                )
+                                ->getOptionLabelFromRecordUsing(fn (Student $record) =>
+                                    "{$record->admission_number} - {$record->first_name} {$record->last_name}"
+                                )
+                                ->searchable(['admission_number', 'first_name', 'last_name'])
+                                ->preload()
+                                ->required()
+                                ->live()
+                                ->afterStateUpdated(function ($set) {
+                                    $set('invoice_id', null);
+                                    $set('parent_id', null);
+                                })
+                                ->helperText('Select the student making payment'),
+
+                            Select::make('invoice_id')
+                                ->label('Invoice (Optional)')
+                                ->options(function ($get) {
+                                    $studentId = $get('student_id');
+                                    if (!$studentId) return [];
+                                    return Invoice::where('student_id', $studentId)
+                                        ->where('status', '!=', 'paid')
+                                        ->get()
+                                        ->mapWithKeys(function ($invoice) {
+                                            $balance = $invoice->amount - $invoice->amount_paid;
+                                            return [$invoice->id => "{$invoice->invoice_number} (Balance: KES " . number_format($balance, 2) . ")"];
+                                        });
+                                })
+                                ->searchable()
+                                ->preload()
+                                ->live()
+                                ->afterStateUpdated(function ($set, $get, $state) {
+                                    if ($state && !$get('amount')) {
+                                        $invoice = Invoice::find($state);
+                                        if ($invoice) {
+                                            $set('amount', $invoice->amount - $invoice->amount_paid);
                                         }
-                                        return [];
-                                    })
-                                    ->searchable()
-                                    ->preload()
-                                    ->live()
-                                    ->afterStateUpdated(function ($set, $get) {
-                                        static::loadInvoiceAmount($set, $get);
-                                    })
-                                    ->helperText('Optional: Select an invoice to pay against'),
-                                
-                                Select::make('parent_id')
-                                    ->label('Parent/Guardian')
-                                    ->options(function ($get) {
-                                        $studentId = $get('student_id_select');
-                                        if ($studentId) {
-                                            // Get the student with their parents
-                                            $student = Student::with('parents')->find($studentId);
-                                            if ($student && $student->parents && $student->parents->count() > 0) {
-                                                return $student->parents->mapWithKeys(function ($parent) {
-                                                    return [$parent->id => $parent->first_name . ' ' . $parent->last_name . ' (' . $parent->phone_number . ')'];
-                                                })->toArray();
-                                            }
+                                    }
+                                })
+                                ->helperText('Optional: Select an invoice to pay against'),
+
+                            Select::make('parent_id')
+                                ->label('Parent/Guardian')
+                                ->options(function ($get) {
+                                    $studentId = $get('student_id');
+                                    if (!$studentId) return [];
+                                    $student = Student::with('parents')->find($studentId);
+                                    if (!$student || $student->parents->isEmpty()) return [];
+                                    return $student->parents->mapWithKeys(fn ($parent) => [
+                                        $parent->id => "{$parent->first_name} {$parent->last_name} ({$parent->phone_number})",
+                                    ]);
+                                })
+                                ->searchable()
+                                ->preload()
+                                ->required()
+                                ->helperText('Select parent/guardian making the payment'),
+                        ]),
+
+                        Grid::make(3)->schema([
+                            TextInput::make('amount')
+                                ->label('Amount')
+                                ->numeric()
+                                ->prefix('KES')
+                                ->required()
+                                ->live(onBlur: true)
+                                ->rules([
+                                    fn ($get) => function ($attribute, $value, $fail) use ($get) {
+                                        $invoiceId = $get('invoice_id');
+                                        if (!$invoiceId || !$value) return;
+                                        $invoice = Invoice::find($invoiceId);
+                                        if (!$invoice) return;
+                                        $balance = $invoice->amount - $invoice->amount_paid;
+                                        if ((float) $value > $balance) {
+                                            $fail('Amount exceeds invoice balance of KES ' . number_format($balance, 2));
                                         }
-                                        return [];
-                                    })
-                                    ->searchable()
-                                    ->preload()
-                                    ->required()
-                                    ->helperText('Select parent/guardian making the payment'),
-                            ]),
-                        
-                        Grid::make(3)
-                            ->schema([
-                                TextInput::make('amount')
-                                    ->label('Amount')
-                                    ->numeric()
-                                    ->prefix('KES')
-                                    ->required()
-                                    ->live()
-                                    ->afterStateUpdated(function ($set, $get) {
-                                        static::validateAmount($set, $get);
-                                    })
-                                    ->helperText('Payment amount in Kenyan Shillings'),
-                                
-                                Select::make('payment_method')
-                                    ->label('Payment Method')
-                                    ->options([
-                                        'mpesa' => 'M-Pesa',
-                                        'bank_transfer' => 'Bank Transfer',
-                                        'cash' => 'Cash',
-                                        'cheque' => 'Cheque',
-                                        'card' => 'Card',
-                                    ])
-                                    ->required()
-                                    ->live()
-                                    ->afterStateUpdated(function ($set, $get) {
-                                        static::handlePaymentMethodChange($set, $get);
-                                    })
-                                    ->native(false),
-                                
-                                Select::make('status')
-                                    ->label('Status')
-                                    ->options([
-                                        'pending' => 'Pending',
-                                        'processing' => 'Processing',
-                                        'completed' => 'Completed',
-                                        'failed' => 'Failed',
-                                        'refunded' => 'Refunded',
-                                    ])
-                                    ->required()
-                                    ->default('completed')
-                                    ->native(false)
-                                    ->helperText('Payment status'),
-                            ]),
-                        
-                        DatePicker::make('payment_date')
-                            ->label('Payment Date')
-                            ->required()
-                            ->native(false)
-                            ->displayFormat('d/m/Y')
-                            ->default(now()),
-                        
-                        TimePicker::make('payment_time')
-                            ->label('Payment Time')
-                            ->native(false)
-                            ->seconds(false)
-                            ->default(now()),
+                                    },
+                                ])
+                                ->helperText('Payment amount in Kenyan Shillings'),
+
+                            Select::make('payment_method')
+                                ->label('Payment Method')
+                                ->options([
+                                    'mpesa'         => 'M-Pesa',
+                                    'bank_transfer' => 'Bank Transfer',
+                                    'cash'          => 'Cash',
+                                    'cheque'        => 'Cheque',
+                                    'card'          => 'Card',
+                                ])
+                                ->required()
+                                ->live()
+                                ->afterStateUpdated(function ($set, $get) {
+                                    static::resetMethodSpecificFields($set, $get('payment_method'));
+                                })
+                                ->native(false),
+
+                            Select::make('status')
+                                ->label('Status')
+                                ->options([
+                                    'pending'    => 'Pending',
+                                    'processing' => 'Processing',
+                                    'completed'  => 'Completed',
+                                    'failed'     => 'Failed',
+                                    'refunded'   => 'Refunded',
+                                ])
+                                ->required()
+                                ->default('completed')
+                                ->native(false),
+                        ]),
+
+                        Grid::make(2)->schema([
+                            DatePicker::make('payment_date')
+                                ->label('Payment Date')
+                                ->required()
+                                ->native(false)
+                                ->displayFormat('d/m/Y')
+                                ->default(today()),
+
+                            TimePicker::make('payment_time')
+                                ->label('Payment Time')
+                                ->native(false)
+                                ->seconds(false)
+                                ->default(now()->format('H:i')),
+                        ]),
                     ]),
-                
-                // M-Pesa Details Section (conditional)
+
+                /* -------------------- M-Pesa -------------------- */
                 Section::make('M-Pesa Details')
                     ->description('M-Pesa transaction details')
                     ->icon('heroicon-o-phone')
                     ->collapsible()
-                    ->visible(function ($get) {
-                        return $get('payment_method') === 'mpesa';
-                    })
+                    ->visible(fn ($get) => $get('payment_method') === 'mpesa')
                     ->schema([
-                        Grid::make(2)
-                            ->schema([
-                                TextInput::make('mpesa_receipt')
-                                    ->label('M-Pesa Receipt Number')
-                                    ->maxLength(50)
-                                    ->placeholder('e.g., QWER456TYK')
-                                    ->helperText('M-Pesa confirmation code')
-                                    ->live(onBlur: true),
-                                
-                                TextInput::make('checkout_request_id')
-                                    ->label('Checkout Request ID')
-                                    ->maxLength(100)
-                                    ->helperText('M-Pesa checkout request ID'),
-                                
-                                TextInput::make('merchant_request_id')
-                                    ->label('Merchant Request ID')
-                                    ->maxLength(100)
-                                    ->helperText('M-Pesa merchant request ID'),
-                            ]),
+                        Grid::make(2)->schema([
+                            TextInput::make('mpesa_receipt')
+                                ->label('M-Pesa Receipt Number')
+                                ->maxLength(50)
+                                ->placeholder('e.g., QWER456TYK'),
+
+                            TextInput::make('checkout_request_id')
+                                ->label('Checkout Request ID')
+                                ->maxLength(100),
+
+                            TextInput::make('merchant_request_id')
+                                ->label('Merchant Request ID')
+                                ->maxLength(100),
+                        ]),
                     ]),
-                
-                // Bank/Card Details Section (conditional)
+
+                /* -------------------- Bank / Card -------------------- */
                 Section::make('Bank/Card Details')
                     ->description('Bank transfer or card payment details')
                     ->icon('heroicon-o-building-library')
                     ->collapsible()
-                    ->visible(function ($get) {
-                        return in_array($get('payment_method'), ['bank_transfer', 'card']);
-                    })
+                    ->visible(fn ($get) => in_array($get('payment_method'), ['bank_transfer', 'card', 'cheque']))
                     ->schema([
-                        Grid::make(2)
-                            ->schema([
-                                TextInput::make('bank_name')
-                                    ->label('Bank Name')
-                                    ->maxLength(100)
-                                    ->placeholder('e.g., Equity Bank, KCB, Co-operative Bank'),
-                                
-                                TextInput::make('transaction_reference')
-                                    ->label('Transaction Reference')
-                                    ->maxLength(100)
-                                    ->placeholder('e.g., TRX-2024-001234'),
-                                
-                                TextInput::make('card_last_four')
-                                    ->label('Card Last 4 Digits')
-                                    ->maxLength(4)
-                                    ->placeholder('e.g., 1234')
-                                    ->regex('/^\d{4}$/'),
-                            ]),
+                        Grid::make(2)->schema([
+                            TextInput::make('bank_name')
+                                ->label('Bank Name')
+                                ->maxLength(100),
+
+                            TextInput::make('transaction_reference')
+                                ->label('Transaction Reference')
+                                ->maxLength(100),
+
+                            TextInput::make('card_last_four')
+                                ->label('Card Last 4 Digits')
+                                ->maxLength(4)
+                                ->rule('regex:/^\d{4}$/')
+                                ->visible(fn ($get) => $get('payment_method') === 'card'),
+                        ]),
                     ]),
-                
-                // Receipt Information Section
+
+                /* -------------------- Receipt -------------------- */
                 Section::make('Receipt Information')
-                    ->description('Receipt generation details')
+                    ->description('Receipt will be auto-generated on save')
                     ->icon('heroicon-o-document-text')
                     ->collapsible()
+                    ->collapsed()
                     ->schema([
-                        Grid::make(2)
-                            ->schema([
-                                TextInput::make('receipt_number')
-                                    ->label('Receipt Number')
-                                    ->maxLength(50)
-                                    ->disabled()
-                                    ->dehydrated(true)
-                                    ->default(function () {
-                                        return static::generateReceiptNumber();
-                                    })
-                                    ->helperText('Auto-generated receipt number'),
-                                
-                                TextInput::make('receipt_path')
-                                    ->label('Receipt Path')
-                                    ->maxLength(255)
-                                    ->disabled()
-                                    ->dehydrated(true)
-                                    ->helperText('Auto-generated after payment completion'),
-                            ]),
+                        Grid::make(2)->schema([
+                            TextInput::make('receipt_number')
+                                ->label('Receipt Number')
+                                ->disabled()
+                                ->dehydrated(false)
+                                ->placeholder('Auto-generated')
+                                ->hiddenOn('create'),
+
+                            TextInput::make('receipt_path')
+                                ->label('Receipt Path')
+                                ->disabled()
+                                ->dehydrated(false)
+                                ->hiddenOn('create'),
+                        ]),
                     ]),
-                
-                // Additional Information
+
+                /* -------------------- Notes -------------------- */
                 Section::make('Additional Information')
-                    ->description('Notes and gateway responses')
                     ->icon('heroicon-o-information-circle')
                     ->collapsible()
                     ->collapsed()
@@ -251,194 +233,104 @@ class PaymentForm
                         Textarea::make('notes')
                             ->label('Payment Notes')
                             ->maxLength(65535)
-                            ->rows(2)
-                            ->helperText('Any additional notes about this payment'),
-                        
+                            ->rows(2),
+
                         Textarea::make('gateway_response')
                             ->label('Gateway Response')
                             ->maxLength(65535)
                             ->rows(3)
-                            ->helperText('Raw response from payment gateway (M-Pesa/Bank API)')
                             ->extraAttributes(['class' => 'font-mono text-sm']),
                     ]),
-                
-                // Display Invoice Summary (only if invoice is selected)
+
+                /* -------------------- Invoice Summary -------------------- */
                 Section::make('Invoice Summary')
                     ->description('Current invoice status')
                     ->icon('heroicon-o-document-chart-bar')
                     ->collapsible()
-                    ->collapsed()
-                    ->visible(function ($get) {
-                        return !empty($get('invoice_id'));
-                    })
+                    ->visible(fn ($get) => !empty($get('invoice_id')))
                     ->schema([
-                        Grid::make(3)
-                            ->schema([
-                                Placeholder::make('invoice_amount')
-                                    ->label('Invoice Amount')
-                                    ->content(function ($get) {
-                                        $invoice = Invoice::find($get('invoice_id'));
-                                        return $invoice ? 'KES ' . number_format($invoice->amount, 2) : '-';
-                                    }),
-                                
-                                Placeholder::make('amount_paid_so_far')
-                                    ->label('Amount Paid So Far')
-                                    ->content(function ($get) {
-                                        $invoice = Invoice::find($get('invoice_id'));
-                                        return $invoice ? 'KES ' . number_format($invoice->amount_paid, 2) : '-';
-                                    }),
-                                
-                                Placeholder::make('current_balance')
-                                    ->label('Current Balance')
-                                    ->content(function ($get) {
-                                        $invoice = Invoice::find($get('invoice_id'));
-                                        if ($invoice) {
-                                            $balance = $invoice->amount - $invoice->amount_paid;
-                                            return 'KES ' . number_format($balance, 2);
-                                        }
-                                        return '-';
-                                    }),
-                            ]),
-                        
-                        Placeholder::make('after_payment_balance')
+                        Grid::make(3)->schema([
+                            TextEntry::make('invoice_amount')
+                                ->label('Invoice Amount')
+                                ->state(function ($get) {
+                                    $invoice = Invoice::find($get('invoice_id'));
+                                    return $invoice ? 'KES ' . number_format($invoice->amount, 2) : '-';
+                                }),
+
+                            TextEntry::make('amount_paid_so_far')
+                                ->label('Paid So Far')
+                                ->state(function ($get) {
+                                    $invoice = Invoice::find($get('invoice_id'));
+                                    return $invoice ? 'KES ' . number_format($invoice->amount_paid, 2) : '-';
+                                }),
+
+                            TextEntry::make('current_balance')
+                                ->label('Current Balance')
+                                ->weight('bold')
+                                ->state(function ($get) {
+                                    $invoice = Invoice::find($get('invoice_id'));
+                                    return $invoice
+                                        ? 'KES ' . number_format($invoice->amount - $invoice->amount_paid, 2)
+                                        : '-';
+                                }),
+                        ]),
+
+                        TextEntry::make('after_payment_balance')
                             ->label('After This Payment')
-                            ->content(function ($get) {
+                            ->weight('bold')
+                            ->color(fn ($get) => 
+                                (float) $get('amount') > 0 ? 'success' : 'gray'
+                            )
+                            ->state(function ($get) {
                                 $invoice = Invoice::find($get('invoice_id'));
-                                $amount = floatval($get('amount') ?? 0);
-                                if ($invoice) {
-                                    $newBalance = ($invoice->amount - $invoice->amount_paid) - $amount;
-                                    return 'KES ' . number_format($newBalance, 2);
-                                }
-                                return '-';
+                                $amount = (float) ($get('amount') ?? 0);
+                                if (!$invoice) return '-';
+                                $newBalance = ($invoice->amount - $invoice->amount_paid) - $amount;
+                                return 'KES ' . number_format($newBalance, 2);
+                            })
+                            ->visible(fn ($get) => !empty($get('amount')) && (float) $get('amount') > 0),
+
+                        TextEntry::make('payment_status_warning')
+                            ->hiddenLabel()
+                            ->color('danger')
+                            ->icon('heroicon-o-exclamation-triangle')
+                            ->state(function ($get) {
+                                $invoice = Invoice::find($get('invoice_id'));
+                                $amount = (float) ($get('amount') ?? 0);
+                                if (!$invoice) return null;
+                                $balance = $invoice->amount - $invoice->amount_paid;
+                                return $amount > $balance
+                                    ? 'Payment exceeds current balance by KES ' . number_format($amount - $balance, 2)
+                                    : null;
                             })
                             ->visible(function ($get) {
-                                return !empty($get('amount')) && floatval($get('amount')) > 0;
-                            }),
-                        
-                        Placeholder::make('payment_status_warning')
-                            ->label('Note')
-                            ->content(function ($get) {
                                 $invoice = Invoice::find($get('invoice_id'));
-                                $amount = floatval($get('amount') ?? 0);
-                                if ($invoice) {
-                                    $currentBalance = $invoice->amount - $invoice->amount_paid;
-                                    if ($amount > $currentBalance) {
-                                        return '⚠️ Warning: Payment amount exceeds current balance!';
-                                    }
-                                }
-                                return null;
-                            })
-                            ->visible(function ($get) {
-                                $invoice = Invoice::find($get('invoice_id'));
-                                $amount = floatval($get('amount') ?? 0);
-                                if ($invoice) {
-                                    $currentBalance = $invoice->amount - $invoice->amount_paid;
-                                    return $amount > $currentBalance;
-                                }
-                                return false;
+                                $amount = (float) ($get('amount') ?? 0);
+                                if (!$invoice) return false;
+                                return $amount > ($invoice->amount - $invoice->amount_paid);
                             }),
                     ]),
-                
-                // Payment Note for non-invoice payments
+
+                /* -------------------- No Invoice Note -------------------- */
                 Section::make('Payment Note')
-                    ->description('For payments without an invoice')
                     ->icon('heroicon-o-information-circle')
-                    ->collapsible()
-                    ->visible(function ($get) {
-                        return empty($get('invoice_id'));
-                    })
+                    ->visible(fn ($get) => empty($get('invoice_id')))
                     ->schema([
-                        Placeholder::make('payment_info')
-                            ->label('Note')
-                            ->content('This payment is not linked to a specific invoice. It will be recorded as a general payment for the student.'),
+                        TextEntry::make('payment_info')
+                            ->hiddenLabel()
+                            ->state('This payment is not linked to a specific invoice. It will be recorded as a general payment for the student.'),
                     ]),
             ]);
     }
-    
-    protected static function generateReceiptNumber(): string
+
+    protected static function resetMethodSpecificFields($set, ?string $method): void
     {
-        $year = date('Y');
-        $lastPayment = Payment::whereYear('created_at', $year)
-            ->orderBy('id', 'desc')
-            ->first();
-        
-        if ($lastPayment && $lastPayment->receipt_number) {
-            preg_match('/RCT\/' . $year . '\/(\d+)/', $lastPayment->receipt_number, $matches);
-            if (isset($matches[1])) {
-                $lastNumber = (int)$matches[1];
-                $newNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
-            } else {
-                $newNumber = '0001';
-            }
-        } else {
-            $newNumber = '0001';
-        }
-        
-        $receiptNumber = "RCT/{$year}/{$newNumber}";
-        
-        while (Payment::where('receipt_number', $receiptNumber)->exists()) {
-            $newNumber = str_pad((int)$newNumber + 1, 4, '0', STR_PAD_LEFT);
-            $receiptNumber = "RCT/{$year}/{$newNumber}";
-        }
-        
-        return $receiptNumber;
-    }
-    
-    protected static function loadStudentData($set, $get)
-    {
-        $studentId = $get('student_id_select');
-        if ($studentId) {
-            $set('student_id', $studentId);
-            
-            // Reset invoice and parent when student changes
-            $set('invoice_id', null);
-            $set('parent_id', null);
-        }
-    }
-    
-    protected static function loadInvoiceAmount($set, $get)
-    {
-        $invoiceId = $get('invoice_id');
-        if ($invoiceId) {
-            $invoice = Invoice::find($invoiceId);
-            if ($invoice) {
-                $currentBalance = $invoice->amount - $invoice->amount_paid;
-                $set('amount', $currentBalance);
-            }
-        }
-    }
-    
-    protected static function validateAmount($set, $get)
-    {
-        $amount = floatval($get('amount') ?? 0);
-        $invoiceId = $get('invoice_id');
-        
-        if ($invoiceId && $amount > 0) {
-            $invoice = Invoice::find($invoiceId);
-            if ($invoice) {
-                $currentBalance = $invoice->amount - $invoice->amount_paid;
-                if ($amount > $currentBalance) {
-                    $set('amount', $currentBalance);
-                }
-                
-                if ($amount >= $currentBalance) {
-                    $set('status', 'completed');
-                }
-            }
-        }
-    }
-    
-    protected static function handlePaymentMethodChange($set, $get)
-    {
-        $method = $get('payment_method');
-        
         if ($method !== 'mpesa') {
             $set('mpesa_receipt', null);
             $set('checkout_request_id', null);
             $set('merchant_request_id', null);
         }
-        
-        if (!in_array($method, ['bank_transfer', 'card'])) {
+        if (!in_array($method, ['bank_transfer', 'card', 'cheque'])) {
             $set('bank_name', null);
             $set('transaction_reference', null);
             $set('card_last_four', null);

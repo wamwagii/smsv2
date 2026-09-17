@@ -1,20 +1,18 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Fee Structure - Grade {{ $class->level }}</title>
+    <title>Fee Structure - {{ $class->name }}</title>
     <style>
         body {
             font-family: 'DejaVu Sans', sans-serif;
             margin: 0;
-            padding: 20px;
+            padding: 10px;
             font-size: 12px;
         }
         .container {
             max-width: 800px;
             margin: 0 auto;
-            border: 2px solid #1a56db;
-            padding: 20px;
-            position: relative;
+            padding: 10px;
         }
         .header {
             text-align: center;
@@ -101,17 +99,28 @@
         }
         .signatures {
             margin-top: 40px;
-            display: flex;
-            justify-content: space-between;
         }
-        .signature-box {
+        .signature-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .signature-table td {
+            width: 50%;
             text-align: center;
-            width: 45%;
+            vertical-align: bottom;
+            padding: 0 20px;
         }
         .signature-line {
             border-top: 1px solid #333;
-            margin-top: 40px;
-            padding-top: 10px;
+            margin-top: 50px;
+            padding-top: 8px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .signature-role {
+            font-size: 10px;
+            color: #666;
+            margin-top: 2px;
         }
         .footer {
             margin-top: 20px;
@@ -121,125 +130,94 @@
             border-top: 1px solid #ddd;
             padding-top: 10px;
         }
-        .watermark {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%) rotate(-45deg);
-            font-size: 60px;
-            color: rgba(0,0,0,0.05);
-            white-space: nowrap;
-            pointer-events: none;
-        }
     </style>
 </head>
 <body>
     <div class="container">
-        @if($feeStructure->is_active)
-            <div class="watermark">ACTIVE</div>
-        @endif
-        
         <div class="header">
-            <div class="school-name">School Management System</div>
-            <div class="school-motto">Excellence in Education</div>
+            <div class="school-name">{{ config('school.name') }}</div>
+            @if(config('school.motto'))
+                <div class="school-motto">{{ config('school.motto') }}</div>
+            @endif
             <div class="school-contact">
-                P.O. Box 12345-00100, Nairobi, Kenya | Tel: +254 700 123 456 | Email: info@school.ac.ke
+                {{ config('school.address') }} &middot;
+                Tel: {{ config('school.phone') }} &middot;
+                Email: {{ config('school.email') }}
             </div>
         </div>
-        
-        <div class="title">FEE STRUCTURE - {{ $class->name }}</div>
-        
-        <table class="info-table">
-            <tr>
-                <td class="label">Academic Year:</td>
-                <td>{{ $academicYear->name }}</td>
-                <td class="label">Grade Level:</td>
-                <td>{{ $class->name }}</td>
-            </tr>
-            <tr>
-                <td class="label">Effective Date:</td>
-                <td>{{ $feeStructure->created_at->format('d/m/Y') }}</td>
-                <td class="label">Status:</td>
-                <td>
-                    @if($feeStructure->is_active)
-                        <span style="color: green;">✓ Active</span>
-                    @else
-                        <span style="color: red;">✗ Inactive</span>
-                    @endif
-                </td>
-            </tr>
-        </table>
-        
-        <h3>FEE BREAKDOWN</h3>
+
+        <div class="title">FEE STRUCTURE  {{ $academicYear->name }}- {{ $class->name }}</div>
         <table class="breakdown-table">
             <thead>
                 <tr>
                     <th>Fee Component</th>
-                    <th>Amount (KES)</th>
+                    <th style="text-align: right;">Amount (KES)</th>
                 </tr>
             </thead>
             <tbody>
-                @if($feeStructure->tuition_fees > 0)
+                @if((float) $feeStructure->tuition_fees > 0)
                 <tr>
                     <td>Tuition Fees</td>
-                    <td style="text-align: right;">{{ number_format($feeStructure->tuition_fees, 2) }}</td>
+                    <td style="text-align: right;">{{ number_format((float) $feeStructure->tuition_fees, 2) }}</td>
                 </tr>
                 @endif
-                @if($feeStructure->activity_fees > 0)
+                @if((float) $feeStructure->activity_fees > 0)
                 <tr>
                     <td>Activity Fees</td>
-                    <td style="text-align: right;">{{ number_format($feeStructure->activity_fees, 2) }}</td>
+                    <td style="text-align: right;">{{ number_format((float) $feeStructure->activity_fees, 2) }}</td>
                 </tr>
                 @endif
-                @if($feeStructure->library_fees > 0)
+                @if((float) $feeStructure->library_fees > 0)
                 <tr>
                     <td>Library Fees</td>
-                    <td style="text-align: right;">{{ number_format($feeStructure->library_fees, 2) }}</td>
+                    <td style="text-align: right;">{{ number_format((float) $feeStructure->library_fees, 2) }}</td>
                 </tr>
                 @endif
-                @if($feeStructure->sports_fees > 0)
+                @if((float) $feeStructure->sports_fees > 0)
                 <tr>
                     <td>Sports Fees</td>
-                    <td style="text-align: right;">{{ number_format($feeStructure->sports_fees, 2) }}</td>
+                    <td style="text-align: right;">{{ number_format((float) $feeStructure->sports_fees, 2) }}</td>
                 </tr>
                 @endif
-                @if($feeStructure->medical_fees > 0)
+                @if((float) $feeStructure->medical_fees > 0)
                 <tr>
                     <td>Medical Fees</td>
-                    <td style="text-align: right;">{{ number_format($feeStructure->medical_fees, 2) }}</td>
+                    <td style="text-align: right;">{{ number_format((float) $feeStructure->medical_fees, 2) }}</td>
                 </tr>
                 @endif
-                @if($feeStructure->transport_fees > 0)
+                @if((float) $feeStructure->transport_fees > 0)
                 <tr>
                     <td>Transport Fees</td>
-                    <td style="text-align: right;">{{ number_format($feeStructure->transport_fees, 2) }}</td>
+                    <td style="text-align: right;">{{ number_format((float) $feeStructure->transport_fees, 2) }}</td>
                 </tr>
                 @endif
-                @if($feeStructure->boarding_fees > 0)
+                @if((float) $feeStructure->boarding_fees > 0)
                 <tr>
                     <td>Boarding Fees</td>
-                    <td style="text-align: right;">{{ number_format($feeStructure->boarding_fees, 2) }}</td>
+                    <td style="text-align: right;">{{ number_format((float) $feeStructure->boarding_fees, 2) }}</td>
                 </tr>
                 @endif
-                @if($feeStructure->uniform_fees > 0)
+                @if((float) $feeStructure->uniform_fees > 0)
                 <tr>
                     <td>Uniform Fees</td>
-                    <td style="text-align: right;">{{ number_format($feeStructure->uniform_fees, 2) }}</td>
+                    <td style="text-align: right;">{{ number_format((float) $feeStructure->uniform_fees, 2) }}</td>
                 </tr>
                 @endif
-                @if($feeStructure->other_fees > 0)
+                @if((float) $feeStructure->other_fees > 0)
                 <tr>
                     <td>Other Fees</td>
-                    <td style="text-align: right;">{{ number_format($feeStructure->other_fees, 2) }}</td>
+                    <td style="text-align: right;">{{ number_format((float) $feeStructure->other_fees, 2) }}</td>
                 </tr>
                 @endif
                 <tr class="total-row">
                     <td><strong>TOTAL ANNUAL FEES</strong></td>
-                    <td style="text-align: right;"><strong>KES {{ number_format($feeStructure->tuition_fees + $feeStructure->activity_fees + $feeStructure->library_fees + $feeStructure->sports_fees + $feeStructure->medical_fees + $feeStructure->transport_fees + $feeStructure->boarding_fees + $feeStructure->uniform_fees + $feeStructure->other_fees, 2) }}</strong></td>
+                    <td style="text-align: right;">
+                        <strong>KES {{ number_format((float) $feeStructure->total_fees, 2) }}</strong>
+                    </td>
                 </tr>
             </tbody>
         </table>
-        
+
         @if($feeStructure->payment_plan && count($feeStructure->payment_plan) > 0)
         <div class="payment-plan">
             <h3>PAYMENT PLAN</h3>
@@ -247,36 +225,36 @@
                 <thead>
                     <tr>
                         <th>Term</th>
-                        <th>Due Date</th>
-                        <th>Amount (KES)</th>
+                        <th style="text-align: right;">Amount (KES)</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach($feeStructure->payment_plan as $plan)
                     <tr>
-                        <td>{{ ucfirst(str_replace('_', ' ', $plan['term'])) }}</td>
-                        <td>{{ \Carbon\Carbon::parse($plan['due_date'])->format('d/m/Y') }}</td>
-                        <td style="text-align: right;">{{ number_format($plan['amount'], 2) }}</td>
+                        <td>{{ ucfirst(str_replace('_', ' ', $plan['term'] ?? '-')) }}</td>
+                        <td style="text-align: right;">{{ number_format((float) ($plan['amount'] ?? 0), 2) }}</td>
                     </tr>
                     @endforeach
                 </tbody>
             </table>
         </div>
         @endif
-        
+
         <div class="signatures">
-            <div class="signature-box">
-                <div class="signature-line">_________________</div>
-                <div>Finance Officer</div>
-                <div style="font-size: 10px; color: #666;">(Finance Signature)</div>
-            </div>
-            <div class="signature-box">
-                <div class="signature-line">_________________</div>
-                <div>Principal</div>
-                <div style="font-size: 10px; color: #666;">(Principal's Signature)</div>
-            </div>
+            <table class="signature-table">
+                <tr>
+                    <td>
+                        <div class="signature-line">Finance Officer</div>
+                        <div class="signature-role">(Finance Signature)</div>
+                    </td>
+                    <td>
+                        <div class="signature-line">Principal</div>
+                        <div class="signature-role">(Principal's Signature)</div>
+                    </td>
+                </tr>
+            </table>
         </div>
-        
+
         <div class="footer">
             <p>This is a computer-generated document. No signature is required if digitally verified.</p>
             <p>Generated on: {{ now()->format('d/m/Y H:i:s') }}</p>

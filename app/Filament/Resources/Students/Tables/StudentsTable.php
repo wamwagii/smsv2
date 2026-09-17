@@ -7,6 +7,7 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkAction;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
@@ -261,21 +262,27 @@ class StudentsTable
                     ->query(fn ($query) => $query->onlyTrashed()),
             ])
             ->recordActions([
-                ViewAction::make()
-                    ->label('View')
-                    ->color('info')
-                    ->icon('heroicon-o-eye'),
-                
-                EditAction::make()
-                    ->label('Edit')
-                    ->color('warning')
-                    ->icon('heroicon-o-pencil'),
-                
-                \Filament\Actions\DeleteAction::make()
-                    ->label('Delete')
-                    ->color('danger')
-                    ->icon('heroicon-o-trash')
-                    ->requiresConfirmation(),
+                ActionGroup::make([
+                    ViewAction::make()
+                        ->label('View')
+                        ->color('info')
+                        ->icon('heroicon-o-eye'),
+
+                    EditAction::make()
+                        ->label('Edit')
+                        ->color('warning')
+                        ->icon('heroicon-o-pencil'),
+
+                    \Filament\Actions\DeleteAction::make()
+                        ->label('Delete')
+                        ->color('danger')
+                        ->icon('heroicon-o-trash')
+                        ->requiresConfirmation(),
+                ])
+                    ->label('Actions')
+                    ->icon('heroicon-m-ellipsis-vertical')
+                    ->color('gray')
+                    ->tooltip('Actions'),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

@@ -7,6 +7,7 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkAction;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
@@ -105,46 +106,52 @@ class FeeStructuresTable
                     ->toggle(),
             ])
             ->recordActions([
-                ViewAction::make()
-                    ->label('View')
-                    ->color('info')
-                    ->icon('heroicon-o-eye'),
-                
-                EditAction::make()
-                    ->label('Edit')
-                    ->color('warning')
-                    ->icon('heroicon-o-pencil'),
-                
-                // Print single fee structure
-                Action::make('print')
-                    ->label('Print')
-                    ->icon('heroicon-o-printer')
+                ActionGroup::make([
+                    ViewAction::make()
+                        ->label('View')
+                        ->color('info')
+                        ->icon('heroicon-o-eye'),
+
+                    EditAction::make()
+                        ->label('Edit')
+                        ->color('warning')
+                        ->icon('heroicon-o-pencil'),
+
+                    // Print single fee structure
+                    Action::make('print')
+                        ->label('Print')
+                        ->icon('heroicon-o-printer')
+                        ->color('gray')
+                        ->url(fn ($record) => route('fee-structures.print', $record))
+                        ->openUrlInNewTab(),
+
+                    Action::make('duplicate')
+                        ->label('Duplicate')
+                        ->icon('heroicon-o-document-duplicate')
+                        ->color('gray')
+                        ->requiresConfirmation()
+                        ->modalHeading('Duplicate Fee Structure')
+                        ->modalDescription('Create a new fee structure based on this one for a different class or year?')
+                        ->action(function ($record) {
+                            $newStructure = $record->replicate();
+                            $newStructure->save();
+
+                            Notification::make()
+                                ->title('Fee structure duplicated')
+                                ->success()
+                                ->send();
+                        }),
+
+                    \Filament\Actions\DeleteAction::make()
+                        ->label('Delete')
+                        ->color('danger')
+                        ->icon('heroicon-o-trash')
+                        ->requiresConfirmation(),
+                ])
+                    ->label('Actions')
+                    ->icon('heroicon-m-ellipsis-vertical')
                     ->color('gray')
-                    ->url(fn ($record) => route('fee-structures.print', $record))
-                    ->openUrlInNewTab(),
-                
-                Action::make('duplicate')
-                    ->label('Duplicate')
-                    ->icon('heroicon-o-document-duplicate')
-                    ->color('gray')
-                    ->requiresConfirmation()
-                    ->modalHeading('Duplicate Fee Structure')
-                    ->modalDescription('Create a new fee structure based on this one for a different class or year?')
-                    ->action(function ($record) {
-                        $newStructure = $record->replicate();
-                        $newStructure->save();
-                        
-                        Notification::make()
-                            ->title('Fee structure duplicated')
-                            ->success()
-                            ->send();
-                    }),
-                
-                \Filament\Actions\DeleteAction::make()
-                    ->label('Delete')
-                    ->color('danger')
-                    ->icon('heroicon-o-trash')
-                    ->requiresConfirmation(),
+                    ->tooltip('Actions'),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

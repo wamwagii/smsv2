@@ -4,6 +4,10 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 class Student extends Model
 {
@@ -43,50 +47,192 @@ class Student extends Model
     ];
     
     protected $casts = [
-        'date_of_birth' => 'date',
+        'date_of_birth'   => 'date',
         'enrollment_date' => 'date',
         'graduation_date' => 'date',
-        'deleted_at' => 'datetime',
+        'deleted_at'      => 'datetime',
     ];
     
-    public function class()
+    /* -----------------------------------------------------------------
+     |  Boot — auto-generate roll number
+     | -----------------------------------------------------------------
+     */
+    
+    protected static function booted(): void
+    {
+        static::creating(function (Student $student) {
+            if (empty($student->roll_number)) {
+                $student->roll_number = static::nextRollNumber(
+                    $student->class_id,
+                    $student->academic_year_id
+                );
+            }
+        });
+    }
+    
+    /* -----------------------------------------------------------------
+     |  Relationships
+     | -----------------------------------------------------------------
+     */
+    
+    public function class(): BelongsTo
     {
         return $this->belongsTo(Classes::class);
     }
     
-    public function academicYear()
+    public function academicYear(): BelongsTo
     {
         return $this->belongsTo(AcademicYears::class);
     }
     
-    public function results()
+    public function results(): HasMany
     {
         return $this->hasMany(Result::class);
     }
     
-    public function payments()
+    public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
     }
     
-    // Use Guardian::class (not Parents::class) to match your setup
-    public function parents()
-    {
-        return $this->belongsToMany(Guardian::class, 'student_parent', 'student_id', 'parent_id');
-    }
-    
-    public function invoices()
+    public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);
     }
     
-    // Accessor for full name
-    public function getFullNameAttribute()
+    /**
+     * Parents / Guardians linked to this student.
+     *
+     * Pivot columns:
+     *  - is_primary_contact     (bool)
+     *  - receives_notifications (bool)
+     */
+    public function parents(): BelongsToMany
     {
-        return trim($this->first_name . ' ' . ($this->middle_name ? $this->middle_name . ' ' : '') . $this->last_name);
+        return $this->belongsToMany(
+                Guardian::class,
+                'student_parent',
+                'student_id',
+                'parent_id'
+            )
+            ->withPivot(['is_primary_contact', 'receives_notifications'])
+            ->withTimestamps();
     }
     
-    // Scope for active students
+    /**
+     * Alias for parents() — some parts of the app may call guardians().
+     */
+    public function guardians(): BelongsToMany
+    {
+        return $this->parents();
+    }
+    
+    /* -----------------------------------------------------------------
+     |  Roll number generation
+     | -----------------------------------------------------------------
+     */
+    
+    /**
+     * Compute the next available roll number for a given class + academic year.
+     *
+     * Returns a zero-padded string ("01", "02", ..., "99", "100").
+     * DB-agnostic — works on both SQLite and MySQL.
+     *
+     * The result is the max existing numeric roll number + 1 for that
+     * (class, academic year) pair. Non-numeric roll numbers are ignored
+     * (mapped to 0) so they don't break the sequence.
+     */
+    public static function nextRollNumber(?int $classId, ?int $academicYearId): ?string
+    {
+        if (!$classId || !$academicYearId) {
+            return null;
+        }
+    
+        $max = static::query()
+            ->where('class_id', $classId)
+            ->where('academic_year_id', $academicYearId)
+            ->whereNotNull('roll_number')
+            ->pluck('roll_number')
+            ->map(fn ($r) => (int) $r)
+            ->max();
+    
+        return str_pad((string) (($max ?? 0) + 1), 2, '0', STR_PAD_LEFT);
+    }
+    
+    /**
+     * Bulk reassign roll numbers for a class + academic year, alphabetically.
+     * Useful at the start of a new academic year or when re-sorting a class.
+     *
+     * Returns the number of students affected.
+     */
+    public static function reassignRollNumbers(int $classId, int $academicYearId): int
+    {
+        return DB::transaction(function () use ($classId, $academicYearId) {
+            $students = static::query()
+                ->where('class_id', $classId)
+                ->where('academic_year_id', $academicYearId)
+                ->orderBy('last_name')
+                ->orderBy('first_name')
+                ->get();
+    
+            $counter = 1;
+            foreach ($students as $student) {
+                $student->roll_number = str_pad((string) $counter, 2, '0', STR_PAD_LEFT);
+                $student->saveQuietly();
+                $counter++;
+            }
+    
+            return $students->count();
+        });
+    }
+    
+    /* -----------------------------------------------------------------
+     |  Helpers
+     | -----------------------------------------------------------------
+     */
+    
+    /**
+     * Get the primary contact parent/guardian for this student.
+     */
+    public function primaryParent(): ?Guardian
+    {
+        return $this->parents()
+            ->wherePivot('is_primary_contact', true)
+            ->first();
+    }
+    
+    /**
+     * Get all parents/guardians who should receive notifications.
+     */
+    public function notificationRecipients()
+    {
+        return $this->parents()
+            ->wherePivot('receives_notifications', true)
+            ->get();
+    }
+    
+    /* -----------------------------------------------------------------
+     |  Accessors
+     | -----------------------------------------------------------------
+     */
+    
+    /**
+     * Full name accessor: "First Middle Last" (trims extra spaces).
+     */
+    public function getFullNameAttribute(): string
+    {
+        return trim(
+            $this->first_name
+            . ' ' . ($this->middle_name ? $this->middle_name . ' ' : '')
+            . $this->last_name
+        );
+    }
+    
+    /* -----------------------------------------------------------------
+     |  Scopes
+     | -----------------------------------------------------------------
+     */
+    
     public function scopeActive($query)
     {
         return $query->where('status', 'active');

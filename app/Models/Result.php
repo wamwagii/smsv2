@@ -3,11 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Result extends Model
 {
     protected $table = 'results';
-    
+
     protected $fillable = [
         'student_id',
         'exam_id',
@@ -20,33 +21,30 @@ class Result extends Model
         'teacher_comments',
         'assessment_breakdown',
     ];
-    
+
     protected $casts = [
-        'marks_obtained' => 'decimal:2',
-        'total_marks' => 'integer',
-        'percentage' => 'decimal:2',
+        'marks_obtained'       => 'decimal:2',
+        'total_marks'          => 'integer',
+        'percentage'           => 'decimal:2',
         'assessment_breakdown' => 'array',
     ];
-    
-    protected static function boot()
+
+    protected static function booted(): void
     {
-        parent::boot();
-        
-        static::saving(function ($result) {
-            // Auto-calculate percentage
-            if ($result->marks_obtained && $result->total_marks) {
-                $result->percentage = ($result->marks_obtained / $result->total_marks) * 100;
-                $result->grade = self::calculateGrade($result->percentage);
+        static::saving(function (Result $result) {
+            if ($result->total_marks > 0) {
+                $result->percentage = round(
+                    ($result->marks_obtained / $result->total_marks) * 100,
+                    2
+                );
+                $result->grade = self::calculateGrade((float) $result->percentage);
             }
         });
     }
-    
-    /**
-     * Calculate grade based on percentage
-     */
-    public static function calculateGrade($percentage)
+
+    public static function calculateGrade(float $percentage): string
     {
-        return match(true) {
+        return match (true) {
             $percentage >= 80 => 'A',
             $percentage >= 75 => 'A-',
             $percentage >= 70 => 'B+',
@@ -58,65 +56,63 @@ class Result extends Model
             $percentage >= 40 => 'D+',
             $percentage >= 35 => 'D',
             $percentage >= 30 => 'D-',
-            default => 'E',
+            default           => 'E',
         };
     }
-    
-    /**
-     * Get the grade point
-     */
-    public static function getGradePoint($grade)
+
+    public static function getGradePoint(string $grade): int
     {
-        return match($grade) {
-            'A' => 12,
+        return match ($grade) {
+            'A'  => 12,
             'A-' => 11,
             'B+' => 10,
-            'B' => 9,
+            'B'  => 9,
             'B-' => 8,
             'C+' => 7,
-            'C' => 6,
+            'C'  => 6,
             'C-' => 5,
             'D+' => 4,
-            'D' => 3,
+            'D'  => 3,
             'D-' => 2,
-            'E' => 1,
+            'E'  => 1,
             default => 0,
         };
     }
-    
-    public function student()
+
+    /* -------- Relationships -------- */
+
+    public function student(): BelongsTo
     {
         return $this->belongsTo(Student::class);
     }
-    
-    public function exam()
+
+    public function exam(): BelongsTo
     {
         return $this->belongsTo(Exam::class);
     }
-    
-    public function subject()
+
+    public function subject(): BelongsTo
     {
         return $this->belongsTo(Subject::class);
     }
-    
-    public function class()
+
+    public function class(): BelongsTo
     {
         return $this->belongsTo(Classes::class, 'class_id');
     }
-    
-    // Scope for a specific exam
+
+    /* -------- Scopes -------- */
+
     public function scopeForExam($query, $examId)
     {
         return $query->where('exam_id', $examId);
     }
-    
-    // Scope for a specific student
+
     public function scopeForStudent($query, $studentId)
     {
         return $query->where('student_id', $studentId);
     }
-    
-    // Scope for a specific class
+
     public function scopeForClass($query, $classId)
     {
         return $query->where('class_id', $classId);

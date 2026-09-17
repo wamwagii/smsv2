@@ -20,6 +20,12 @@
             font-weight: bold;
             color: #1a56db;
         }
+        .school-motto {
+            font-size: 10px;
+            font-style: italic;
+            color: #666;
+            margin-top: 2px;
+        }
         .report-title {
             font-size: 16px;
             font-weight: bold;
@@ -29,7 +35,7 @@
             text-align: center;
             font-size: 10px;
             color: #666;
-            margin-bottom: 15px;
+            margin-bottom: 5px;
         }
         table {
             width: 100%;
@@ -39,14 +45,21 @@
         th {
             background-color: #1a56db;
             color: white;
-            padding: 8px;
-            text-align: left;
-            font-size: 10px;
+            padding: 8px 4px;
+            text-align: center;
+            font-size: 9px;
         }
         td {
-            padding: 6px;
+            padding: 6px 4px;
             border: 1px solid #ddd;
             vertical-align: top;
+        }
+        td.number {
+            text-align: right;
+            white-space: nowrap;
+        }
+        td.grade-cell {
+            text-align: left;
         }
         .total-row {
             background-color: #fef3c7;
@@ -54,17 +67,29 @@
         }
         .signatures {
             margin-top: 30px;
-            display: flex;
-            justify-content: space-between;
         }
-        .signature-box {
+        .signature-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .signature-table td {
+            width: 50%;
             text-align: center;
-            width: 45%;
+            vertical-align: bottom;
+            padding: 0 20px;
+            border: none;
         }
         .signature-line {
             border-top: 1px solid #333;
-            margin-top: 30px;
+            margin-top: 50px;
             padding-top: 8px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .signature-role {
+            font-size: 9px;
+            color: #666;
+            margin-top: 2px;
         }
         .footer {
             margin-top: 20px;
@@ -81,72 +106,77 @@
 </head>
 <body>
     <div class="header">
-        <div class="school-name">School Management System</div>
+        <div class="school-name">{{ config('school.name') }}</div>
+        @if(config('school.motto'))
+            <div class="school-motto">{{ config('school.motto') }}</div>
+        @endif
         <div class="report-title">{{ $title ?? 'COMPLETE FEE STRUCTURES REPORT' }}</div>
         <div class="info">
-            P.O. Box 12345-00100, Nairobi, Kenya | Tel: +254 700 123 456 | Email: info@school.ac.ke
+            {{ config('school.address') }} &middot;
+            Tel: {{ config('school.phone') }} &middot;
+            Email: {{ config('school.email') }}
         </div>
         <div class="info">
             Generated on: {{ $generatedDate->format('d/m/Y H:i:s') }}
         </div>
     </div>
-    
+
     <table>
         <thead>
             <tr>
                 <th>Grade</th>
-                <th>Tuition (KES)</th>
-                <th>Activity (KES)</th>
-                <th>Library (KES)</th>
-                <th>Sports (KES)</th>
-                <th>Medical (KES)</th>
-                <th>Transport (KES)</th>
-                <th>Boarding (KES)</th>
-                <th>Uniform (KES)</th>
-                <th>Other (KES)</th>
+                <th>Tuition</th>
+                <th>Activity</th>
+                <th>Library</th>
+                <th>Sports</th>
+                <th>Medical</th>
+                <th>Transport</th>
+                <th>Boarding</th>
+                <th>Uniform</th>
+                <th>Other</th>
                 <th>Total (KES)</th>
             </tr>
         </thead>
         <tbody>
             @foreach($feeStructures as $fs)
             <tr>
-                <td><strong>Grade {{ $fs->class->level }}</strong></td>
-                <td>{{ number_format($fs->tuition_fees, 2) }}</td>
-                <td>{{ number_format($fs->activity_fees, 2) }}</td>
-                <td>{{ number_format($fs->library_fees, 2) }}</td>
-                <td>{{ number_format($fs->sports_fees, 2) }}</td>
-                <td>{{ number_format($fs->medical_fees, 2) }}</td>
-                <td>{{ number_format($fs->transport_fees, 2) }}</td>
-                <td>{{ number_format($fs->boarding_fees, 2) }}</td>
-                <td>{{ number_format($fs->uniform_fees, 2) }}</td>
-                <td>{{ number_format($fs->other_fees, 2) }}</td>
-                <td>{{ number_format($fs->tuition_fees + $fs->activity_fees + $fs->library_fees + $fs->sports_fees + $fs->medical_fees + $fs->transport_fees + $fs->boarding_fees + $fs->uniform_fees + $fs->other_fees, 2) }}</td>
+                <td class="grade-cell"><strong>{{ $fs->class?->name ?? 'N/A' }}</strong></td>
+                <td class="number">{{ number_format((float) $fs->tuition_fees, 2) }}</td>
+                <td class="number">{{ number_format((float) $fs->activity_fees, 2) }}</td>
+                <td class="number">{{ number_format((float) $fs->library_fees, 2) }}</td>
+                <td class="number">{{ number_format((float) $fs->sports_fees, 2) }}</td>
+                <td class="number">{{ number_format((float) $fs->medical_fees, 2) }}</td>
+                <td class="number">{{ number_format((float) $fs->transport_fees, 2) }}</td>
+                <td class="number">{{ number_format((float) $fs->boarding_fees, 2) }}</td>
+                <td class="number">{{ number_format((float) $fs->uniform_fees, 2) }}</td>
+                <td class="number">{{ number_format((float) $fs->other_fees, 2) }}</td>
+                <td class="number"><strong>{{ number_format((float) $fs->total_fees, 2) }}</strong></td>
             </tr>
             @endforeach
-            <tr class="total-row">
-                <td colspan="10" style="text-align: right;"><strong>GRAND TOTAL:</strong></td>
-                <td><strong>KES {{ number_format($feeStructures->sum(function($fs) { return $fs->tuition_fees + $fs->activity_fees + $fs->library_fees + $fs->sports_fees + $fs->medical_fees + $fs->transport_fees + $fs->boarding_fees + $fs->uniform_fees + $fs->other_fees; }), 2) }}</strong></td>
+            
             </tr>
         </tbody>
     </table>
-    
+
     <div class="signatures">
-        <div class="signature-box">
-            <div class="signature-line">_________________</div>
-            <div>Finance Officer</div>
-            <div style="font-size: 9px;">(Finance Signature)</div>
-            <div style="font-size: 9px;">Date: ___________</div>
-        </div>
-        <div class="signature-box">
-            <div class="signature-line">_________________</div>
-            <div>Principal</div>
-            <div style="font-size: 9px;">(Principal's Signature)</div>
-            <div style="font-size: 9px;">Date: ___________</div>
-        </div>
+        <table class="signature-table">
+            <tr>
+                <td>
+                    <div class="signature-line">Finance Officer</div>
+                    <div class="signature-role">(Finance Signature)</div>
+                    <div class="signature-role">Date: ___________</div>
+                </td>
+                <td>
+                    <div class="signature-line">Principal</div>
+                    <div class="signature-role">(Principal's Signature)</div>
+                    <div class="signature-role">Date: ___________</div>
+                </td>
+            </tr>
+        </table>
     </div>
-    
+
     <div class="footer">
-        <p>This is an official document from School Management System.</p>
+        <p>This is an official document from {{ config('school.name') }}.</p>
         <p>For any queries, please contact the school finance office.</p>
     </div>
 </body>

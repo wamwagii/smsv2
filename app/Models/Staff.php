@@ -3,14 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Staff extends Model
 {
     use SoftDeletes;
-    
+
     protected $table = 'staff';
-    
+
     protected $fillable = [
         'staff_number',
         'first_name',
@@ -44,7 +45,7 @@ class Staff extends Model
         'emergency_contact_phone',
         'emergency_contact_relation',
     ];
-    
+
     protected $casts = [
         'date_of_birth' => 'date',
         'hire_date' => 'date',
@@ -52,9 +53,24 @@ class Staff extends Model
         'subjects_taught' => 'array',
         'certifications' => 'array',
     ];
-    
-    public function department()
+
+    /* -----------------------------------------------------------------
+     |  Relationships
+     | -----------------------------------------------------------------
+     */
+
+    public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    /* -----------------------------------------------------------------
+     |  Accessors
+     | -----------------------------------------------------------------
+     */
+
+    public function getFullNameAttribute(): string
+    {
+        return trim("{$this->first_name} {$this->last_name}");
     }
 }

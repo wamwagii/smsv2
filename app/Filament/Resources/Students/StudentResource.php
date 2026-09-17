@@ -15,6 +15,9 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class StudentResource extends Resource
 {
@@ -22,7 +25,11 @@ class StudentResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::AcademicCap;
 
-    protected static ?string $recordTitleAttribute = 'name';
+    protected static string|\UnitEnum|null $navigationGroup = 'People';
+
+    protected static ?int $navigationSort = 1;
+
+    protected static ?string $recordTitleAttribute = 'full_name';
 
     public static function form(Schema $schema): Schema
     {
@@ -49,10 +56,70 @@ class StudentResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => ListStudents::route('/'),
+            'index'  => ListStudents::route('/'),
             'create' => CreateStudent::route('/create'),
-            'view' => ViewStudent::route('/{record}'),
-            'edit' => EditStudent::route('/{record}/edit'),
+            'view'   => ViewStudent::route('/{record}'),
+            'edit'   => EditStudent::route('/{record}/edit'),
         ];
+    }
+
+    public static function getRecordRouteBindingEloquentQuery(): Builder
+    {
+        return parent::getRecordRouteBindingEloquentQuery()
+            ->withoutGlobalScopes([
+                SoftDeletingScope::class,
+            ]);
+    }
+
+    /* -----------------------------------------------------------------
+     |  Global search
+     | -----------------------------------------------------------------
+     */
+
+    public static function getGloballySearchableAttributes(): array
+    {
+        return [
+            'admission_number',
+            'first_name',
+            'middle_name',
+            'last_name',
+        ];
+    }
+
+    public static function getGlobalSearchResultTitle(Model $record): string
+    {
+        return $record->full_name ?? 'Student';
+    }
+
+    public static function getGlobalSearchResultDetails(Model $record): array
+    {
+        return [
+            'Admission' => $record->admission_number ?? '-',
+            'Class'     => $record->class?->class_code ?? '-',
+        ];
+    }
+
+    public static function getGlobalSearchEloquentQuery(): Builder
+    {
+        return parent::getGlobalSearchEloquentQuery()
+            ->with('class');
+    }
+
+    /* -----------------------------------------------------------------
+     |  Navigation
+     | -----------------------------------------------------------------
+     */
+
+    public static function getNavigationBadge(): ?string
+    {
+        // Total active students — high count, so only show if small
+        $active = static::getModel()::where('status', 'active')->count();
+
+        return $active > 0 && $active < 100 ? (string) $active : null;
+    }
+
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return 'success';
     }
 }

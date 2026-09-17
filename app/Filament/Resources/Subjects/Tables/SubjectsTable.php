@@ -7,6 +7,7 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkAction;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
@@ -123,43 +124,49 @@ class SubjectsTable
                     ->toggle(),
             ])
             ->recordActions([
-                ViewAction::make()
-                    ->label('View')
-                    ->color('info')
-                    ->icon('heroicon-o-eye'),
-                
-                EditAction::make()
-                    ->label('Edit')
-                    ->color('warning')
-                    ->icon('heroicon-o-pencil'),
-                
-                Action::make('duplicate')
-                    ->label('Duplicate')
-                    ->icon('heroicon-o-document-duplicate')
+                ActionGroup::make([
+                    ViewAction::make()
+                        ->label('View')
+                        ->color('info')
+                        ->icon('heroicon-o-eye'),
+
+                    EditAction::make()
+                        ->label('Edit')
+                        ->color('warning')
+                        ->icon('heroicon-o-pencil'),
+
+                    Action::make('duplicate')
+                        ->label('Duplicate')
+                        ->icon('heroicon-o-document-duplicate')
+                        ->color('gray')
+                        ->requiresConfirmation()
+                        ->modalHeading('Duplicate Subject')
+                        ->modalDescription('Create a new subject based on this one?')
+                        ->action(function ($record) {
+                            $newSubject = $record->replicate();
+                            $newSubject->code = $newSubject->code . '_COPY';
+                            $newSubject->name = $newSubject->name . ' (Copy)';
+                            $newSubject->save();
+
+                            Notification::make()
+                                ->title('Subject duplicated successfully')
+                                ->success()
+                                ->send();
+                        }),
+
+                    \Filament\Actions\DeleteAction::make()
+                        ->label('Delete')
+                        ->color('danger')
+                        ->icon('heroicon-o-trash')
+                        ->requiresConfirmation()
+                        ->modalHeading('Delete Subject')
+                        ->modalDescription('Are you sure you want to delete this subject? This action cannot be undone.')
+                        ->modalSubmitActionLabel('Yes, delete it'),
+                ])
+                    ->label('Actions')
+                    ->icon('heroicon-m-ellipsis-vertical')
                     ->color('gray')
-                    ->requiresConfirmation()
-                    ->modalHeading('Duplicate Subject')
-                    ->modalDescription('Create a new subject based on this one?')
-                    ->action(function ($record) {
-                        $newSubject = $record->replicate();
-                        $newSubject->code = $newSubject->code . '_COPY';
-                        $newSubject->name = $newSubject->name . ' (Copy)';
-                        $newSubject->save();
-                        
-                        Notification::make()
-                            ->title('Subject duplicated successfully')
-                            ->success()
-                            ->send();
-                    }),
-                
-                \Filament\Actions\DeleteAction::make()
-                    ->label('Delete')
-                    ->color('danger')
-                    ->icon('heroicon-o-trash')
-                    ->requiresConfirmation()
-                    ->modalHeading('Delete Subject')
-                    ->modalDescription('Are you sure you want to delete this subject? This action cannot be undone.')
-                    ->modalSubmitActionLabel('Yes, delete it'),
+                    ->tooltip('Actions'),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

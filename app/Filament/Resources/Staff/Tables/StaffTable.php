@@ -7,6 +7,7 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\BadgeColumn;
@@ -304,21 +305,27 @@ class StaffTable
                     ->query(fn ($query) => $query->onlyTrashed()),
             ])
             ->recordActions([
-                ViewAction::make()
-                    ->label('View')
-                    ->color('info')
-                    ->icon('heroicon-o-eye'),
-                
-                EditAction::make()
-                    ->label('Edit')
-                    ->color('warning')
-                    ->icon('heroicon-o-pencil'),
-                
-                \Filament\Actions\DeleteAction::make()
-                    ->label('Delete')
-                    ->color('danger')
-                    ->icon('heroicon-o-trash')
-                    ->requiresConfirmation(),
+                ActionGroup::make([
+                    ViewAction::make()
+                        ->label('View')
+                        ->color('info')
+                        ->icon('heroicon-o-eye'),
+
+                    EditAction::make()
+                        ->label('Edit')
+                        ->color('warning')
+                        ->icon('heroicon-o-pencil'),
+
+                    \Filament\Actions\DeleteAction::make()
+                        ->label('Delete')
+                        ->color('danger')
+                        ->icon('heroicon-o-trash')
+                        ->requiresConfirmation(),
+                ])
+                    ->label('Actions')
+                    ->icon('heroicon-m-ellipsis-vertical')
+                    ->color('gray')
+                    ->tooltip('Actions'),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

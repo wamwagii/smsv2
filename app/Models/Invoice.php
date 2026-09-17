@@ -2,12 +2,16 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 class Invoice extends Model
 {
     protected $table = 'invoices';
-    
+
     protected $fillable = [
         'invoice_number',
         'student_id',
@@ -19,227 +23,178 @@ class Invoice extends Model
         'status',
         'notes',
     ];
-    
+
     protected $casts = [
-        'amount' => 'decimal:2',
+        'amount'      => 'decimal:2',
         'amount_paid' => 'decimal:2',
-        'due_date' => 'date',
+        'due_date'    => 'date',
     ];
-    
-    /**
-     * Boot the model to add auto-generation of invoice number
+
+    /* -----------------------------------------------------------------
+     |  Boot
+     | -----------------------------------------------------------------
      */
-    protected static function boot()
+
+    protected static function booted(): void
     {
-        parent::boot();
-        
-        static::creating(function ($invoice) {
+        static::creating(function (Invoice $invoice) {
             if (empty($invoice->invoice_number)) {
-                $invoice->invoice_number = self::generateInvoiceNumber();
+                $invoice->invoice_number = static::generateInvoiceNumber();
             }
         });
     }
-    
-    /**
-     * Generate a unique invoice number
-     * Format: INV/YYYY/XXXX (e.g., INV/2024/0001)
-     * Resets counter each year
+
+    /* -----------------------------------------------------------------
+     |  Invoice number generation
+     | -----------------------------------------------------------------
      */
+
     public static function generateInvoiceNumber(): string
     {
-        $year = date('Y');
-        
-        // Use a lock to prevent race conditions
-        return \Illuminate\Support\Facades\DB::transaction(function () use ($year) {
-            // Get the last invoice number for this year with lock
-            $lastInvoice = self::where('invoice_number', 'like', "INV/{$year}/%")
-                ->lockForUpdate()
-                ->orderBy('invoice_number', 'desc')
-                ->first();
-            
-            if ($lastInvoice && $lastInvoice->invoice_number) {
-                // Extract the sequential number from the last invoice
-                preg_match('/INV\/' . $year . '\/(\d+)/', $lastInvoice->invoice_number, $matches);
-                if (isset($matches[1])) {
-                    $lastNumber = (int)$matches[1];
-                    $newNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
-                } else {
-                    $newNumber = '0001';
-                }
-            } else {
-                $newNumber = '0001';
-            }
-            
-            $invoiceNumber = "INV/{$year}/{$newNumber}";
-            
-            // Double-check uniqueness (shouldn't be needed with lock, but safe)
-            while (self::where('invoice_number', $invoiceNumber)->exists()) {
-                $newNumber = str_pad((int)$newNumber + 1, 4, '0', STR_PAD_LEFT);
-                $invoiceNumber = "INV/{$year}/{$newNumber}";
-            }
-            
-            return $invoiceNumber;
-        });
+        $year   = date('Y');
+        $prefix = "INV/{$year}/";
+
+        $last = static::where('invoice_number', 'like', $prefix . '%')
+            ->orderByDesc('invoice_number')
+            ->value('invoice_number');
+
+        $next = 1;
+        if ($last) {
+            $serialPart = substr($last, strlen($prefix));
+            $next = ((int) $serialPart) + 1;
+        }
+
+        return $prefix . str_pad((string) $next, 4, '0', STR_PAD_LEFT);
     }
-    
-    /**
-     * Alternative: Generate invoice number with month (more detailed)
-     * Format: INV/YYYY/MM-XXXX (e.g., INV/2024/12-0001)
+
+    /* -----------------------------------------------------------------
+     |  Relationships
+     | -----------------------------------------------------------------
      */
-    public static function generateDetailedInvoiceNumber(): string
-    {
-        $year = date('Y');
-        $month = date('m');
-        
-        return \Illuminate\Support\Facades\DB::transaction(function () use ($year, $month) {
-            $lastInvoice = self::where('invoice_number', 'like', "INV/{$year}/{$month}-%")
-                ->lockForUpdate()
-                ->orderBy('invoice_number', 'desc')
-                ->first();
-            
-            if ($lastInvoice && $lastInvoice->invoice_number) {
-                preg_match('/INV\/' . $year . '\/' . $month . '-(\d+)/', $lastInvoice->invoice_number, $matches);
-                if (isset($matches[1])) {
-                    $lastNumber = (int)$matches[1];
-                    $newNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
-                } else {
-                    $newNumber = '0001';
-                }
-            } else {
-                $newNumber = '0001';
-            }
-            
-            $invoiceNumber = "INV/{$year}/{$month}-{$newNumber}";
-            
-            while (self::where('invoice_number', $invoiceNumber)->exists()) {
-                $newNumber = str_pad((int)$newNumber + 1, 4, '0', STR_PAD_LEFT);
-                $invoiceNumber = "INV/{$year}/{$month}-{$newNumber}";
-            }
-            
-            return $invoiceNumber;
-        });
-    }
-    
-    /**
-     * Get the student associated with the invoice
-     */
-    public function student()
+
+    public function student(): BelongsTo
     {
         return $this->belongsTo(Student::class);
     }
-    
-    /**
-     * Get the fee structure associated with the invoice
-     */
-    public function feeStructure()
+
+    public function feeStructure(): BelongsTo
     {
         return $this->belongsTo(FeeStructure::class);
     }
-    
-    /**
-     * Get the payments for this invoice
-     */
-    public function payments()
+
+    public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
     }
-    
-    /**
-     * Update invoice when payment is made (balance is auto-calculated by DB)
+
+    /* -----------------------------------------------------------------
+     |  Business rules
+     | -----------------------------------------------------------------
      */
-    public function updateAfterPayment()
+
+    /**
+     * Whether this invoice can be deleted.
+     * Blocked when:
+     *  - the invoice has any payments, OR
+     *  - the invoice is already marked paid
+     */
+    public function canBeDeleted(): bool
     {
-        $totalPaid = $this->payments()->where('status', 'completed')->sum('amount');
-        
-        $this->amount_paid = $totalPaid;
-        
-        // Determine new status based on amount_paid vs amount
-        if ($totalPaid >= $this->amount) {
-            $this->status = 'paid';
-        } elseif ($totalPaid > 0) {
-            $this->status = 'partially_paid';
-        } elseif ($this->due_date && $this->due_date->isPast()) {
-            $this->status = 'overdue';
-        } else {
-            $this->status = 'pending';
+        if ($this->payments()->exists()) {
+            return false;
         }
-        
-        // Note: balance is NOT updated here - it's a generated column in the database
-        // The database automatically calculates balance = amount - amount_paid
-        
-        $this->saveQuietly();
-        return $this;
+
+        return $this->status !== 'paid';
     }
-    
+
     /**
-     * Get the formatted invoice number (accessor)
+     * Recalculate amount_paid and status from completed payments.
      */
-    public function getFormattedInvoiceNumberAttribute(): string
+    public function updateAfterPayment(): self
     {
-        return $this->invoice_number;
+        return DB::transaction(function () {
+            $this->refresh();
+
+            $totalPaid = (float) $this->payments()
+                ->where('status', 'completed')
+                ->lockForUpdate()
+                ->sum('amount');
+
+            $this->amount_paid = $totalPaid;
+            $this->status      = $this->resolveStatus($totalPaid);
+            $this->save();
+
+            return $this;
+        });
     }
-    
+
+    protected function resolveStatus(float $totalPaid): string
+    {
+        if ($totalPaid >= (float) $this->amount) {
+            return 'paid';
+        }
+        if ($totalPaid > 0) {
+            return 'partially_paid';
+        }
+        if ($this->due_date && $this->due_date->endOfDay()->isPast()) {
+            return 'overdue';
+        }
+        return 'pending';
+    }
+
+    /* -----------------------------------------------------------------
+     |  Accessors
+     | -----------------------------------------------------------------
+     */
+
     /**
-     * Get the balance (accessor that calculates from database values)
+     * Balance accessor — trusts the DB generated column when present.
      */
     public function getBalanceAttribute(): float
     {
-        return $this->amount - $this->amount_paid;
+        return (float) ($this->attributes['balance'] ?? ((float) $this->amount - (float) $this->amount_paid));
     }
-    
-    /**
-     * Get the balance in KES format
-     */
+
     public function getBalanceFormattedAttribute(): string
     {
         return 'KES ' . number_format($this->getBalanceAttribute(), 2);
     }
-    
-    /**
-     * Get the amount in KES format
-     */
+
     public function getAmountFormattedAttribute(): string
     {
-        return 'KES ' . number_format($this->amount, 2);
+        return 'KES ' . number_format((float) $this->amount, 2);
     }
-    
-    /**
-     * Scope a query to only include overdue invoices
+
+    /* -----------------------------------------------------------------
+     |  Scopes
+     | -----------------------------------------------------------------
      */
-    public function scopeOverdue($query)
+
+    public function scopeOverdue(Builder $query): Builder
     {
-        return $query->where('due_date', '<', now())
+        return $query->whereDate('due_date', '<', today())
                      ->where('status', '!=', 'paid');
     }
-    
-    /**
-     * Scope a query to only include unpaid invoices
-     */
-    public function scopeUnpaid($query)
+
+    public function scopeUnpaid(Builder $query): Builder
     {
         return $query->whereColumn('amount', '>', 'amount_paid');
     }
-    
-    /**
-     * Scope a query to only include invoices by year
-     */
-    public function scopeForYear($query, $year)
+
+    public function scopeForYear(Builder $query, int $year): Builder
     {
-        return $query->whereYear('created_at', $year);
+        return $query->whereBetween('created_at', [
+            "{$year}-01-01 00:00:00",
+            "{$year}-12-31 23:59:59",
+        ]);
     }
-    
-    /**
-     * Scope a query to only include invoices by term
-     */
-    public function scopeForTerm($query, $term)
+
+    public function scopeForTerm(Builder $query, string $term): Builder
     {
         return $query->where('term', $term);
     }
-    
-    /**
-     * Scope a query to only include invoices by student
-     */
-    public function scopeForStudent($query, $studentId)
+
+    public function scopeForStudent(Builder $query, int $studentId): Builder
     {
         return $query->where('student_id', $studentId);
     }

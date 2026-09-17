@@ -13,20 +13,29 @@ class DepartmentInfolist
         return $schema
             ->components([
                 TextEntry::make('name'),
+
                 TextEntry::make('code'),
-                TextEntry::make('head_of_department_id')
-                    ->numeric()
-                    ->placeholder('-'),
+
+                TextEntry::make('headOfDepartment.full_name')
+                    ->label('Head of Department')
+                    ->placeholder('Not assigned'),
+
                 TextEntry::make('description')
                     ->placeholder('-')
                     ->columnSpanFull(),
+
                 IconEntry::make('is_active')
+                    ->label('Active')
                     ->boolean(),
+
                 TextEntry::make('created_at')
-                    ->dateTime()
+                    ->label('Created')
+                    ->dateTime('d/m/Y H:i')
                     ->placeholder('-'),
+
                 TextEntry::make('updated_at')
-                    ->dateTime()
+                    ->label('Last Updated')
+                    ->dateTime('d/m/Y H:i')
                     ->placeholder('-'),
             ]);
     }

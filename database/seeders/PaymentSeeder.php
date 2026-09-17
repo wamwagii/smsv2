@@ -6,172 +6,224 @@ use App\Models\Payment;
 use App\Models\Invoice;
 use App\Models\Student;
 use App\Models\Guardian;
+use Carbon\Carbon;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class PaymentSeeder extends Seeder
 {
     public function run(): void
     {
-        // Get all invoices that are not fully paid
-        $invoices = Invoice::where('status', '!=', 'paid')->get();
-        
+        // Seed payments for ALL invoices — including paid ones.
+        $invoices = Invoice::all();
+
         if ($invoices->isEmpty()) {
             $this->command->warn('No invoices found. Please run InvoiceSeeder first.');
             return;
         }
-        
+
+        // Clear existing payments for idempotency
+        Payment::query()->delete();
+
         $paymentMethods = ['mpesa', 'bank_transfer', 'cash', 'cheque', 'card'];
-        $bankNames = ['Equity Bank', 'KCB Bank', 'Co-operative Bank', 'Absa Bank', 'Stanbic Bank', 'NCBA Bank'];
-        
+        $bankNames = [
+            'Equity Bank', 'KCB Bank', 'Co-operative Bank',
+            'Absa Bank', 'Stanbic Bank', 'NCBA Bank',
+        ];
+
         $payments = [];
         $receiptCounter = 1;
-        
+
         foreach ($invoices as $invoice) {
-            // Determine number of payments per invoice (1-2 payments)
-            $numPayments = rand(1, 2);
-            $remainingAmount = $invoice->amount - $invoice->amount_paid;
-            $paidAmount = $invoice->amount_paid;
-            
-            for ($i = 1; $i <= $numPayments && $remainingAmount > 0; $i++) {
+            // Determine target paid amount based on invoice status
+            $targetPaid = match ($invoice->status) {
+                'paid'           => (float) $invoice->amount,
+                'partially_paid' => round((float) $invoice->amount * (rand(30, 70) / 100), 2),
+                'waived'         => 0.0,
+                default          => 0.0,
+            };
+
+            if ($targetPaid <= 0) {
+                $this->syncInvoice($invoice, 0.0);
+                continue;
+            }
+
+            $numPayments = rand(1, 3);
+            $remaining = $targetPaid;
+            $totalPaid = 0.0;
+
+            for ($i = 1; $i <= $numPayments && $remaining > 0.01; $i++) {
                 $paymentMethod = $paymentMethods[array_rand($paymentMethods)];
-                
-                // Determine payment amount
-                if ($i === $numPayments || $remainingAmount < 5000) {
-                    $amount = $remainingAmount;
+
+                if ($i === $numPayments || $remaining < 5000) {
+                    $amount = round($remaining, 2);
                 } else {
-                    $amount = round($remainingAmount * (rand(30, 70) / 100), 2);
+                    $amount = round($remaining * (rand(30, 70) / 100), 2);
                 }
-                
+
                 $paymentDate = $this->randomDateBetween(
                     $invoice->created_at ?? now()->subMonths(3),
                     now()
                 );
-                
-                $status = $amount >= $remainingAmount ? 'completed' : 'completed';
-                
-                // Initialize all possible fields with null
+
                 $payment = [
-                    'idempotency_key' => (string) Str::uuid(),
-                    'invoice_id' => $invoice->id,
-                    'student_id' => $invoice->student_id,
-                    'parent_id' => $this->getRandomParentId($invoice->student_id),
-                    'amount' => $amount,
-                    'payment_method' => $paymentMethod,
-                    'status' => $status,
-                    'payment_date' => $paymentDate,
-                    'payment_time' => $this->randomTime(),
-                    'receipt_number' => 'RCT/' . date('Y') . '/' . str_pad($receiptCounter, 5, '0', STR_PAD_LEFT),
-                    'mpesa_receipt' => null,
-                    'checkout_request_id' => null,
-                    'merchant_request_id' => null,
+                    'idempotency_key'       => (string) Str::uuid(),
+                    'invoice_id'            => $invoice->id,
+                    'student_id'            => $invoice->student_id,
+                    'parent_id'             => $this->getRandomParentId($invoice->student_id),
+                    'amount'                => $amount,
+                    'payment_method'        => $paymentMethod,
+                    'status'                => 'completed',
+                    'payment_date'          => $paymentDate,
+                    'payment_time'          => $this->randomTime(),
+                    'receipt_number'        => 'RCT/' . date('Y') . '/' . str_pad((string) $receiptCounter, 5, '0', STR_PAD_LEFT),
+                    'mpesa_receipt'         => null,
+                    'checkout_request_id'   => null,
+                    'merchant_request_id'   => null,
                     'transaction_reference' => null,
-                    'bank_name' => null,
-                    'card_last_four' => null,
-                    'notes' => null,
-                    'gateway_response' => null,
-                    'created_at' => $paymentDate,
-                    'updated_at' => $paymentDate,
+                    'bank_name'             => null,
+                    'card_last_four'        => null,
+                    'notes'                 => null,
+                    'gateway_response'      => null,
+                    'created_at'            => $paymentDate,
+                    'updated_at'            => $paymentDate,
                 ];
-                
-                // Add method-specific fields
-                if ($paymentMethod === 'mpesa') {
-                    $payment['mpesa_receipt'] = $this->generateMpesaReceipt();
-                    $payment['checkout_request_id'] = 'CO_' . Str::random(20);
-                    $payment['merchant_request_id'] = 'MR_' . Str::random(20);
-                    $payment['gateway_response'] = json_encode([
-                        'ResultCode' => 0,
-                        'ResultDesc' => 'Success',
-                        'TransactionDate' => $paymentDate->format('YmdHis'),
-                        'ReceiptNumber' => $payment['mpesa_receipt'],
-                    ]);
-                } elseif (in_array($paymentMethod, ['bank_transfer', 'card'])) {
-                    $payment['transaction_reference'] = 'TRX_' . strtoupper(Str::random(15));
-                    $payment['bank_name'] = $bankNames[array_rand($bankNames)];
-                    if ($paymentMethod === 'card') {
-                        $payment['card_last_four'] = (string) rand(1000, 9999);
-                    }
-                    $payment['gateway_response'] = json_encode([
-                        'ResultCode' => 0,
-                        'ResultDesc' => 'Success',
-                        'TransactionReference' => $payment['transaction_reference'],
-                    ]);
-                } elseif ($paymentMethod === 'cheque') {
-                    $payment['transaction_reference'] = 'CHQ_' . strtoupper(Str::random(10));
-                    $payment['notes'] = 'Cheque payment received';
-                } elseif ($paymentMethod === 'cash') {
-                    $payment['notes'] = 'Cash payment received';
-                }
-                
-                // Add notes for partial payments
-                if ($amount < $remainingAmount && $i < $numPayments) {
-                    $payment['notes'] = ($payment['notes'] ? $payment['notes'] . '. ' : '') . 
-                        'Partial payment. Remaining: KES ' . number_format($remainingAmount - $amount, 2);
-                }
-                
+
+                match ($paymentMethod) {
+                    'mpesa'                 => $this->fillMpesa($payment, $paymentDate),
+                    'bank_transfer', 'card' => $this->fillBank($payment, $bankNames, $paymentMethod),
+                    'cheque'                => $this->fillCheque($payment),
+                    'cash'                  => $this->fillCash($payment),
+                    default                 => null,
+                };
+
                 $payments[] = $payment;
-                
-                $remainingAmount -= $amount;
-                $paidAmount += $amount;
+
+                $remaining -= $amount;
+                $totalPaid += $amount;
                 $receiptCounter++;
             }
-            
-            // Update invoice after payments
-            $this->updateInvoiceAfterPayments($invoice, $paidAmount);
+
+            $this->syncInvoice($invoice, $totalPaid);
         }
-        
-        // Insert payments in chunks
+
         if (!empty($payments)) {
-            foreach (array_chunk($payments, 50) as $chunk) {
-                Payment::insert($chunk);
-            }
-            $this->command->info(count($payments) . ' payments created successfully.');
-            $this->command->info('Invoices have been updated with payment statuses.');
-        } else {
-            $this->command->warn('No payments were created.');
+    \Illuminate\Database\Eloquent\Model::withoutEvents(function () use ($payments) {
+        foreach ($payments as $payment) {
+            Payment::create($payment);
         }
+    });
+    $this->command->info(count($payments) . ' payments created successfully.');
+} else {
+    $this->command->warn('No payments were created.');
+}
     }
-    
-    private function getRandomParentId($studentId)
+
+    /* -----------------------------------------------------------------
+     |  Helpers
+     | -----------------------------------------------------------------
+     */
+
+    private function fillMpesa(array &$payment, Carbon $paymentDate): void
     {
-        $student = Student::with('parents')->find($studentId);
-        if ($student && $student->parents && $student->parents->count() > 0) {
-            return $student->parents->random()->id;
+        $payment['mpesa_receipt']       = $this->generateMpesaReceipt();
+        $payment['checkout_request_id'] = 'CO_' . Str::random(20);
+        $payment['merchant_request_id'] = 'MR_' . Str::random(20);
+
+        // Plain array — Eloquent's 'array' cast will encode it on save
+        $payment['gateway_response'] = [
+            'ResultCode'      => 0,
+            'ResultDesc'      => 'Success',
+            'TransactionDate' => $paymentDate->format('YmdHis'),
+            'ReceiptNumber'   => $payment['mpesa_receipt'],
+        ];
+    }
+
+    private function fillBank(array &$payment, array $bankNames, string $method): void
+    {
+        $payment['transaction_reference'] = 'TRX_' . strtoupper(Str::random(15));
+        $payment['bank_name']             = $bankNames[array_rand($bankNames)];
+
+        if ($method === 'card') {
+            $payment['card_last_four'] = (string) rand(1000, 9999);
         }
-        return Guardian::inRandomOrder()->first()?->id;
+
+        // Plain array — Eloquent's 'array' cast will encode it on save
+        $payment['gateway_response'] = [
+            'ResultCode'           => 0,
+            'ResultDesc'           => 'Success',
+            'TransactionReference' => $payment['transaction_reference'],
+        ];
     }
-    
-    private function randomDateBetween($startDate, $endDate)
+
+    private function fillCheque(array &$payment): void
     {
-        $timestamp = rand($startDate->timestamp, $endDate->timestamp);
-        return \Carbon\Carbon::createFromTimestamp($timestamp);
+        $payment['transaction_reference'] = 'CHQ_' . strtoupper(Str::random(10));
+        $payment['notes']                 = 'Cheque payment received';
     }
-    
-    private function randomTime()
+
+    private function fillCash(array &$payment): void
     {
-        return \Carbon\Carbon::createFromTime(rand(8, 17), rand(0, 59), rand(0, 59));
+        $payment['notes'] = 'Cash payment received';
     }
-    
-    private function generateMpesaReceipt()
+
+    private function syncInvoice(Invoice $invoice, float $totalPaid): void
     {
-        $prefixes = ['QWE', 'RTY', 'UIO', 'PAS', 'DFG', 'HJK', 'LZX', 'CVB', 'NMB', 'WER'];
-        $prefix = $prefixes[array_rand($prefixes)];
-        return $prefix . $prefix . rand(100, 999) . 'T' . rand(1, 9);
-    }
-    
-    private function updateInvoiceAfterPayments($invoice, $totalPaid)
-    {
-        $balance = $invoice->amount - $totalPaid;
-        
-        $status = match(true) {
-            $balance <= 0 => 'paid',
-            $totalPaid > 0 => 'partially_paid',
-            default => 'pending',
+        $dueDate = $invoice->due_date
+            ? Carbon::parse($invoice->due_date)
+            : null;
+
+        $status = match (true) {
+            $totalPaid >= (float) $invoice->amount => 'paid',
+            $totalPaid > 0                         => 'partially_paid',
+            $dueDate && $dueDate->isPast()         => 'overdue',
+            default                                => 'pending',
         };
-        
-        $invoice->update([
+
+        DB::table('invoices')->where('id', $invoice->id)->update([
             'amount_paid' => $totalPaid,
-            'status' => $status,
+            'status'      => $status,
+            'updated_at'  => now(),
         ]);
     }
+
+    private function getRandomParentId(?int $studentId): ?int
+    {
+        if (!$studentId) {
+            return Guardian::inRandomOrder()->value('id');
+        }
+
+        $student = Student::with('parents')->find($studentId);
+
+        if ($student && $student->parents->isNotEmpty()) {
+            return $student->parents->random()->id;
+        }
+
+        return Guardian::inRandomOrder()->value('id');
+    }
+
+    private function randomDateBetween(Carbon $startDate, Carbon $endDate): Carbon
+    {
+        return Carbon::createFromTimestamp(
+            rand($startDate->timestamp, $endDate->timestamp)
+        );
+    }
+
+    private function randomTime(): Carbon
+    {
+        return Carbon::createFromTime(rand(8, 17), rand(0, 59), rand(0, 59));
+    }
+
+private function generateMpesaReceipt(): string
+{
+    $prefixes = ['QWE', 'RTY', 'UIO', 'PAS', 'DFG', 'HJK', 'LZX', 'CVB', 'NMB', 'WER'];
+
+    do {
+        $prefix = $prefixes[array_rand($prefixes)];
+        $code   = $prefix . $prefix . rand(100, 999) . 'T' . rand(1, 9);
+    } while (Payment::where('mpesa_receipt', $code)->exists());
+
+    return $code;
+}
 }

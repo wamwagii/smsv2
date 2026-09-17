@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\FeeStructure;
+use App\Models\Result;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 
@@ -12,7 +13,6 @@ class PrintController extends Controller
 {
     private function sanitizeFilename($filename)
     {
-        // Remove any characters that are not allowed in filenames
         $invalid = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', ' '];
         $replace = ['-', '-', '-', '-', '-', '-', '-', '-', '-', '_'];
         return str_replace($invalid, $replace, $filename);
@@ -47,7 +47,6 @@ class PrintController extends Controller
         return $pdf->download($filename);
     }
     
-    // Print single fee structure
     public function printFeeStructure($id)
     {
         $feeStructure = FeeStructure::with(['class', 'academicYear'])->findOrFail($id);
@@ -63,7 +62,6 @@ class PrintController extends Controller
         return $pdf->download($filename);
     }
     
-    // Print all fee structures
     public function printAllFeeStructures()
     {
         $feeStructures = FeeStructure::with(['class', 'academicYear'])
@@ -79,7 +77,6 @@ class PrintController extends Controller
         return $pdf->download('all_fee_structures_' . date('Y-m-d') . '.pdf');
     }
     
-    // Print selected fee structures
     public function printSelectedFeeStructures(Request $request)
     {
         $ids = explode(',', $request->input('ids'));
@@ -100,7 +97,6 @@ class PrintController extends Controller
         return $pdf->download($filename);
     }
     
-    // Print fee structures for a specific grade range
     public function printFeeStructuresByGrade(Request $request)
     {
         $startGrade = $request->input('start_grade', 1);
@@ -122,5 +118,106 @@ class PrintController extends Controller
         $filename = "fee_structures_grades_{$startGrade}_to_{$endGrade}_" . date('Y-m-d') . '.pdf';
         
         return $pdf->download($filename);
+    }
+    
+    /**
+     * Print a full result slip for a student in a specific exam.
+     * Includes ALL subjects, totals, average, grade, and class rank.
+     */
+    public function printResultSlip($studentId, $examId)
+    {
+        $student = \App\Models\Student::with('class')->findOrFail($studentId);
+        $exam = \App\Models\Exam::with('academicYear')->findOrFail($examId);
+
+        $results = Result::with('subject')
+            ->where('student_id', $studentId)
+            ->where('exam_id', $examId)
+            ->get()
+            ->sortBy(fn ($r) => $r->subject?->name ?? '');
+
+        if ($results->isEmpty()) {
+            abort(404, 'No results found for this student in the selected exam.');
+        }
+
+        // Totals and average
+        $totalMarksObtained = (float) $results->sum('marks_obtained');
+        $totalMarksPossible = (float) $results->sum('total_marks');
+        $averagePercentage  = $totalMarksPossible > 0
+            ? round(($totalMarksObtained / $totalMarksPossible) * 100, 2)
+            : 0.0;
+
+        $overallGrade  = Result::calculateGrade($averagePercentage);
+        $overallPoints = Result::getGradePoint($overallGrade);
+
+        // Class rank
+        $rankings  = $this->classRankingsForExam($student->class_id, (int) $examId);
+        $rankData  = $rankings->firstWhere('student_id', $studentId);
+        $classSize = $rankings->count();
+
+        $pdf = Pdf::loadView('pdf.result_slip', [
+            'student'            => $student,
+            'exam'               => $exam,
+            'results'            => $results,
+            'totalMarksObtained' => $totalMarksObtained,
+            'totalMarksPossible' => $totalMarksPossible,
+            'averagePercentage'  => $averagePercentage,
+            'overallGrade'       => $overallGrade,
+            'overallPoints'      => $overallPoints,
+            'rank'               => $rankData['position'] ?? null,
+            'classSize'          => $classSize,
+        ]);
+
+        $admission = $this->sanitizeFilename($student->admission_number ?? 'student');
+        $examName  = $this->sanitizeFilename($exam->name ?? 'exam');
+
+        return $pdf->download("result_slip_{$admission}_{$examName}.pdf");
+    }
+
+    /**
+     * Compute dense-rank standings of all students in a class for a given exam,
+     * based on their average percentage across all subjects.
+     *
+     * @return \Illuminate\Support\Collection<int, array{student_id:int, position:int, average:float}>
+     */
+    private function classRankingsForExam(?int $classId, int $examId)
+    {
+        if (!$classId) {
+            return collect();
+        }
+
+        $studentAverages = Result::query()
+            ->where('class_id', $classId)
+            ->where('exam_id', $examId)
+            ->get()
+            ->groupBy('student_id')
+            ->map(function ($studentResults) {
+                $obtained = (float) $studentResults->sum('marks_obtained');
+                $possible = (float) $studentResults->sum('total_marks');
+                return [
+                    'student_id' => $studentResults->first()->student_id,
+                    'average'    => $possible > 0 ? round(($obtained / $possible) * 100, 2) : 0.0,
+                ];
+            })
+            ->sortByDesc('average')
+            ->values();
+
+        $rank = 1;
+        $previousAverage = null;
+        $position = 0;
+
+        return $studentAverages->map(function ($row, $index) use (&$rank, &$previousAverage) {
+            if ($previousAverage !== null && $row['average'] == $previousAverage) {
+                // Tie — same position as previous
+            } else {
+                $rank = $index + 1;
+            }
+            $previousAverage = $row['average'];
+
+            return [
+                'student_id' => $row['student_id'],
+                'position'   => $rank,
+                'average'    => $row['average'],
+            ];
+        });
     }
 }

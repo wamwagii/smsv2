@@ -62,10 +62,16 @@ class AcademicYearsTable
             ])
             ->recordActions([
                 ActionGroup::make([
-                    ViewAction::make(),
-                    EditAction::make(),
-                    DeleteAction::make(),
-                    
+                    ViewAction::make()
+                        ->label('View')
+                        ->color('info')
+                        ->icon('heroicon-o-eye'),
+
+                    EditAction::make()
+                        ->label('Edit')
+                        ->color('warning')
+                        ->icon('heroicon-o-pencil'),
+
                     // Custom action: Set as current
                     \Filament\Actions\Action::make('set_as_current')
                         ->label('Set as Current')
@@ -81,7 +87,17 @@ class AcademicYearsTable
                                 ->success()
                                 ->send();
                         }),
-                ]),
+
+                    DeleteAction::make()
+                        ->label('Delete')
+                        ->color('danger')
+                        ->icon('heroicon-o-trash')
+                        ->requiresConfirmation(),
+                ])
+                    ->label('Actions')
+                    ->icon('heroicon-m-ellipsis-vertical')
+                    ->color('gray')
+                    ->tooltip('Actions'),
             ])
             ->toolbarActions([
                 // Export bulk action (exports selected rows only)

@@ -14,19 +14,22 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\FileUpload;
 use Filament\Schemas\Schema;
 use App\Models\AcademicYears;
+use App\Models\Student;
 
 class StudentForm
 {
     public static function configure(Schema $schema): Schema
     {
         return $schema
-
-            ->columns(1) // Full width layout
-            ->extraAttributes(['class' => 'w-full']) // Ensure full width
-
+            ->columns(1)
+            ->extraAttributes(['class' => 'w-full'])
             ->components([
                 Wizard::make([
+                    /* -------------------------------------------------
+                     |  1. Personal Information
+                     ------------------------------------------------- */
                     Step::make('Personal Information')
+                        ->icon('heroicon-o-user')
                         ->schema([
                             Section::make('Student Photo')
                                 ->schema([
@@ -36,232 +39,248 @@ class StudentForm
                                         ->directory('students/photos')
                                         ->imageEditor()
                                         ->circleCropper()
-                                        ->maxSize(2048),
-                                ]),
-                            
+                                        ->maxSize(2048)
+                                        ->columnSpanFull()
+                                        ->alignCenter(),
+                                ])
+                                ->columns(1),
+
                             Section::make('Basic Information')
                                 ->schema([
-                                    Grid::make(2)
-                                        ->schema([
-                                            TextInput::make('admission_number')
-                                                ->label('Admission Number')
-                                                ->required()
-                                                ->unique(ignoreRecord: true)
-                                                ->maxLength(50),
-                                            
-                                            TextInput::make('roll_number')
-                                                ->label('Roll Number')
-                                                ->maxLength(50),
-                                        ]),
-                                    
-                                    Grid::make(3)
-                                        ->schema([
-                                            TextInput::make('first_name')
-                                                ->label('First Name')
-                                                ->required()
-                                                ->maxLength(100),
-                                            
-                                            TextInput::make('middle_name')
-                                                ->label('Middle Name')
-                                                ->maxLength(100),
-                                            
-                                            TextInput::make('last_name')
-                                                ->label('Last Name')
-                                                ->required()
-                                                ->maxLength(100),
-                                        ]),
-                                    
-                                    Grid::make(2)
-                                        ->schema([
-                                            DatePicker::make('date_of_birth')
-                                                ->label('Date of Birth')
-                                                ->required()
-                                                ->native(false)
-                                                ->displayFormat('d/m/Y'),
-                                            
-                                            Select::make('gender')
-                                                ->label('Gender')
-                                                ->options([
-                                                    'male' => 'Male',
-                                                    'female' => 'Female',
-                                                    'other' => 'Other',
-                                                ])
-                                                ->required(),
-                                        ]),
-                                    
-                                    Grid::make(2)
-                                        ->schema([
-                                            TextInput::make('birth_certificate_number')
-                                                ->label('Birth Certificate Number')
-                                                ->maxLength(50),
-                                            
-                                            Select::make('status')
-                                                ->label('Student Status')
-                                                ->options([
-                                                    'active' => 'Active',
-                                                    'alumni' => 'Alumni',
-                                                    'transferred' => 'Transferred',
-                                                    'suspended' => 'Suspended',
-                                                    'expelled' => 'Expelled',
-                                                ])
-                                                ->required()
-                                                ->default('active'),
-                                        ]),
+                                    Grid::make(2)->schema([
+                                        TextInput::make('admission_number')
+                                            ->label('Admission Number')
+                                            ->required()
+                                            ->unique(ignoreRecord: true)
+                                            ->maxLength(50)
+                                            ->disabledOn('edit')
+                                            ->dehydrated(),
+
+                                        TextInput::make('roll_number')
+                                            ->label('Roll Number')
+                                            ->maxLength(50)
+                                            ->readOnly()
+                                            ->placeholder('Auto-generated')
+                                            ->helperText('Auto-assigned based on class + academic year')
+                                            ->dehydrated(true),
+                                    ]),
+
+                                    Grid::make(3)->schema([
+                                        TextInput::make('first_name')
+                                            ->label('First Name')
+                                            ->required()
+                                            ->maxLength(100),
+
+                                        TextInput::make('middle_name')
+                                            ->label('Middle Name')
+                                            ->maxLength(100),
+
+                                        TextInput::make('last_name')
+                                            ->label('Last Name')
+                                            ->required()
+                                            ->maxLength(100),
+                                    ]),
+
+                                    Grid::make(2)->schema([
+                                        DatePicker::make('date_of_birth')
+                                            ->label('Date of Birth')
+                                            ->required()
+                                            ->native(false)
+                                            ->displayFormat('d/m/Y')
+                                            ->maxDate(now()),
+
+                                        Select::make('gender')
+                                            ->label('Gender')
+                                            ->options([
+                                                'male'   => 'Male',
+                                                'female' => 'Female',
+                                                'other'  => 'Other',
+                                            ])
+                                            ->required(),
+                                    ]),
+
+                                    Grid::make(2)->schema([
+                                        TextInput::make('birth_certificate_number')
+                                            ->label('Birth Certificate Number')
+                                            ->maxLength(50),
+
+                                        Select::make('status')
+                                            ->label('Student Status')
+                                            ->options([
+                                                'active'      => 'Active',
+                                                'alumni'      => 'Alumni',
+                                                'transferred' => 'Transferred',
+                                                'suspended'   => 'Suspended',
+                                                'expelled'    => 'Expelled',
+                                            ])
+                                            ->required()
+                                            ->default('active'),
+                                    ]),
                                 ]),
                         ]),
-                    
+
+                    /* -------------------------------------------------
+                     |  2. Academic Information
+                     ------------------------------------------------- */
                     Step::make('Academic Information')
+                        ->icon('heroicon-o-academic-cap')
                         ->schema([
                             Section::make('Current Placement')
                                 ->schema([
-                                    Grid::make(2)
-                                        ->schema([
-                                            Select::make('class_id')
-                                                ->label('Current Class')
-                                                ->relationship('class', 'class_code')
-                                                ->required()
-                                                ->searchable()
-                                                ->preload(),
-                                            
-                                            Select::make('academic_year_id')
-                                                ->label('Academic Year')
-                                                ->relationship('academicYear', 'name')
-                                                ->required()
-                                                ->searchable()
-                                                ->preload()
-                                                ->default(function () {
-                                                    return AcademicYears::where('is_current', true)->first()?->id;
-                                                }),
-                                        ]),
-                                    
-                                    Grid::make(2)
-                                        ->schema([
-                                            DatePicker::make('enrollment_date')
-                                                ->label('Enrollment Date')
-                                                ->required()
-                                                ->native(false)
-                                                ->displayFormat('d/m/Y')
-                                                ->default(now()),
-                                            
-                                            DatePicker::make('graduation_date')
-                                                ->label('Graduation Date')
-                                                ->native(false)
-                                                ->displayFormat('d/m/Y'),
-                                        ]),
+                                    Grid::make(2)->schema([
+                                        Select::make('class_id')
+                                            ->label('Current Class')
+                                            ->relationship('class', 'class_code')
+                                            ->required()
+                                            ->searchable()
+                                            ->preload()
+                                            ->live()
+                                            ->afterStateUpdated(function ($set, $get, $state) {
+                                                static::refreshRollNumber($set, $get, $state, $get('academic_year_id'));
+                                            }),
+
+                                        Select::make('academic_year_id')
+                                            ->label('Academic Year')
+                                            ->relationship('academicYear', 'name')
+                                            ->required()
+                                            ->searchable()
+                                            ->preload()
+                                            ->live()
+                                            ->default(fn () => AcademicYears::where('is_current', true)->value('id'))
+                                            ->afterStateUpdated(function ($set, $get, $state) {
+                                                static::refreshRollNumber($set, $get, $get('class_id'), $state);
+                                            }),
+                                    ]),
+
+                                    Grid::make(2)->schema([
+                                        DatePicker::make('enrollment_date')
+                                            ->label('Enrollment Date')
+                                            ->required()
+                                            ->native(false)
+                                            ->displayFormat('d/m/Y')
+                                            ->default(today()),
+
+                                        DatePicker::make('graduation_date')
+                                            ->label('Graduation Date')
+                                            ->native(false)
+                                            ->displayFormat('d/m/Y')
+                                            ->afterOrEqual('enrollment_date'),
+                                    ]),
                                 ]),
-                            
-                            Section::make('KCSE/KCPE Information')
+
+                            Section::make('KCPE Information')
                                 ->schema([
-                                    Grid::make(3)
-                                        ->schema([
-                                            TextInput::make('kcpse_index_number')
-                                                ->label('KCPSE Index Number')
-                                                ->maxLength(20),
-                                            
-                                            Select::make('kcpe_grade')
-                                                ->label('KCPE Grade')
-                                                ->options([
-                                                    'A' => 'A', 
-                                                    'A-' => 'A-', 
-                                                    'B+' => 'B+', 
-                                                    'B' => 'B',
-                                                    'B-' => 'B-', 
-                                                    'C+' => 'C+', 
-                                                    'C' => 'C', 
-                                                    'C-' => 'C-',
-                                                    'D+' => 'D+', 
-                                                    'D' => 'D', 
-                                                    'D-' => 'D-', 
-                                                    'E' => 'E',
-                                                ]),
-                                            
-                                            TextInput::make('kcpe_score')
-                                                ->label('KCPE Score')
-                                                ->numeric()
-                                                ->minValue(0)
-                                                ->maxValue(500),
-                                        ]),
+                                    Grid::make(3)->schema([
+                                        TextInput::make('kcpse_index_number')
+                                            ->label('KCPSE Index Number')
+                                            ->maxLength(20),
+
+                                        Select::make('kcpe_grade')
+                                            ->label('KCPE Grade')
+                                            ->options([
+                                                'A'  => 'A',  'A-' => 'A-',
+                                                'B+' => 'B+', 'B'  => 'B',  'B-' => 'B-',
+                                                'C+' => 'C+', 'C'  => 'C',  'C-' => 'C-',
+                                                'D+' => 'D+', 'D'  => 'D',  'D-' => 'D-',
+                                                'E'  => 'E',
+                                            ]),
+
+                                        TextInput::make('kcpe_score')
+                                            ->label('KCPE Score')
+                                            ->numeric()
+                                            ->minValue(0)
+                                            ->maxValue(500),
+                                    ]),
                                 ]),
                         ]),
-                    
+
+                    /* -------------------------------------------------
+                     |  3. Contact Information
+                     ------------------------------------------------- */
                     Step::make('Contact Information')
+                        ->icon('heroicon-o-phone')
                         ->schema([
                             Section::make('Student Contact')
                                 ->schema([
-                                    Grid::make(2)
-                                        ->schema([
-                                            TextInput::make('phone_number')
-                                                ->label('Phone Number')
-                                                ->tel()
-                                                ->maxLength(15),
-                                            
-                                            TextInput::make('email')
-                                                ->label('Email Address')
-                                                ->email()
-                                                ->maxLength(100)
-                                                ->unique(ignoreRecord: true),
-                                        ]),
-                                    
+                                    Grid::make(2)->schema([
+                                        TextInput::make('phone_number')
+                                            ->label('Phone Number')
+                                            ->tel()
+                                            ->maxLength(15),
+
+                                        TextInput::make('email')
+                                            ->label('Email Address')
+                                            ->email()
+                                            ->maxLength(100)
+                                            ->unique(ignoreRecord: true)
+                                            ->nullable(),
+                                    ]),
+
                                     Textarea::make('physical_address')
                                         ->label('Physical Address')
                                         ->maxLength(65535)
                                         ->rows(2),
                                 ]),
                         ]),
-                    
-                    Step::make('Parents/Guardians')
+
+                    /* -------------------------------------------------
+                     |  4. Parents / Guardians
+                     ------------------------------------------------- */
+                    Step::make('Parents / Guardians')
+                        ->icon('heroicon-o-user-group')
                         ->schema([
-                            Fieldset::make('Father\'s Information')
+                            Fieldset::make("Father's Information")
                                 ->schema([
-                                    Grid::make(2)
-                                        ->schema([
-                                            TextInput::make('father_name')
-                                                ->label('Father\'s Full Name')
-                                                ->maxLength(100),
-                                            
-                                            TextInput::make('father_phone')
-                                                ->label('Father\'s Phone Number')
-                                                ->tel()
-                                                ->maxLength(15),
-                                        ]),
+                                    Grid::make(2)->schema([
+                                        TextInput::make('father_name')
+                                            ->label("Father's Full Name")
+                                            ->maxLength(100),
+
+                                        TextInput::make('father_phone')
+                                            ->label("Father's Phone Number")
+                                            ->tel()
+                                            ->maxLength(15),
+                                    ]),
                                 ]),
-                            
-                            Fieldset::make('Mother\'s Information')
+
+                            Fieldset::make("Mother's Information")
                                 ->schema([
-                                    Grid::make(2)
-                                        ->schema([
-                                            TextInput::make('mother_name')
-                                                ->label('Mother\'s Full Name')
-                                                ->maxLength(100),
-                                            
-                                            TextInput::make('mother_phone')
-                                                ->label('Mother\'s Phone Number')
-                                                ->tel()
-                                                ->maxLength(15),
-                                        ]),
+                                    Grid::make(2)->schema([
+                                        TextInput::make('mother_name')
+                                            ->label("Mother's Full Name")
+                                            ->maxLength(100),
+
+                                        TextInput::make('mother_phone')
+                                            ->label("Mother's Phone Number")
+                                            ->tel()
+                                            ->maxLength(15),
+                                    ]),
                                 ]),
-                            
+
                             Fieldset::make('Guardian Information')
                                 ->schema([
-                                    Grid::make(3)
-                                        ->schema([
-                                            TextInput::make('guardian_name')
-                                                ->label('Guardian\'s Full Name')
-                                                ->maxLength(100),
-                                            
-                                            TextInput::make('guardian_phone')
-                                                ->label('Guardian\'s Phone Number')
-                                                ->tel()
-                                                ->maxLength(15),
-                                            
-                                            TextInput::make('guardian_relation')
-                                                ->label('Relationship')
-                                                ->maxLength(50),
-                                        ]),
+                                    Grid::make(3)->schema([
+                                        TextInput::make('guardian_name')
+                                            ->label("Guardian's Full Name")
+                                            ->maxLength(100),
+
+                                        TextInput::make('guardian_phone')
+                                            ->label("Guardian's Phone Number")
+                                            ->tel()
+                                            ->maxLength(15),
+
+                                        TextInput::make('guardian_relation')
+                                            ->label('Relationship')
+                                            ->maxLength(50),
+                                    ]),
                                 ]),
                         ]),
-                    
+
+                    /* -------------------------------------------------
+                     |  5. Medical Information
+                     ------------------------------------------------- */
                     Step::make('Medical Information')
+                        ->icon('heroicon-o-heart')
                         ->schema([
                             Section::make('Medical Notes')
                                 ->schema([
@@ -272,7 +291,27 @@ class StudentForm
                                         ->helperText('List any medical conditions, allergies, or special needs'),
                                 ]),
                         ]),
-                ]),
+                ])
+                    ->persistStepInQueryString('step')
+                    ->skippable(),
             ]);
+    }
+
+    /**
+     * Refresh the roll number preview when class or academic year changes.
+     * On edit, keeps the existing roll number so it's not overwritten unexpectedly.
+     */
+    protected static function refreshRollNumber($set, $get, ?int $classId, ?int $academicYearId): void
+    {
+        // Don't regenerate on edit — preserve the existing value
+        if (filled($get('roll_number'))) {
+            return;
+        }
+
+        if (!$classId || !$academicYearId) {
+            return;
+        }
+
+        $set('roll_number', Student::nextRollNumber($classId, $academicYearId));
     }
 }

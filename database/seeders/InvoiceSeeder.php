@@ -7,152 +7,148 @@ use App\Models\Student;
 use App\Models\FeeStructure;
 use App\Models\AcademicYears;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class InvoiceSeeder extends Seeder
 {
     public function run(): void
     {
-        $students = Student::all();
-        
+        $students = Student::with('class')->get();
+
         if ($students->isEmpty()) {
             $this->command->warn('No students found. Please run StudentSeeder first.');
             return;
         }
-        
-        $academicYear = AcademicYears::where('is_current', true)->first();
-        
-        if (!$academicYear) {
-            $academicYear = AcademicYears::first();
-        }
-        
+
+        $academicYear = AcademicYears::where('is_current', true)->first()
+            ?? AcademicYears::first();
+
         if (!$academicYear) {
             $this->command->error('No academic year found.');
             return;
         }
-        
+
         $terms = ['term_1', 'term_2', 'term_3'];
         $created = 0;
         $updated = 0;
-        $invoiceCounter = Invoice::count() + 1;
-        
-        foreach ($students as $student) {
-            $feeStructure = FeeStructure::where('class_id', $student->class_id)
-                ->where('academic_year_id', $academicYear->id)
-                ->first();
-            
-            if (!$feeStructure) {
-                $this->command->warn("No fee structure for student {$student->admission_number}");
-                continue;
-            }
-            
-            foreach ($terms as $term) {
-                $amount = 0;
-                $dueDate = null;
-                
-                if ($feeStructure->payment_plan && is_array($feeStructure->payment_plan) && count($feeStructure->payment_plan) > 0) {
-                    foreach ($feeStructure->payment_plan as $plan) {
-                        if (is_array($plan) && isset($plan['term']) && $plan['term'] === $term) {
-                            $amount = $plan['amount'];
-                            $dueDate = $plan['due_date'] ?? $this->getDueDateForTerm($term);
-                            break;
-                        }
-                    }
-                }
-                
-                if ($amount === 0) {
-                    $totalFees = $feeStructure->tuition_fees + $feeStructure->activity_fees + 
-                                 $feeStructure->library_fees + $feeStructure->sports_fees + 
-                                 $feeStructure->medical_fees + $feeStructure->transport_fees + 
-                                 $feeStructure->boarding_fees + $feeStructure->uniform_fees + 
-                                 $feeStructure->other_fees;
-                    $amount = round($totalFees / 3, 2);
-                    $dueDate = $this->getDueDateForTerm($term);
-                }
-                
-                $status = $this->getRandomStatus();
-                $amountPaid = 0;
-                
-                if ($status === 'paid') {
-                    $amountPaid = $amount;
-                } elseif ($status === 'partially_paid') {
-                    $amountPaid = round($amount * (rand(30, 70) / 100), 2);
-                }
-                
-                // Check if invoice already exists
-                $existingInvoice = Invoice::where('student_id', $student->id)
-                    ->where('term', $term)
-                    ->where('fee_structure_id', $feeStructure->id)
+
+        DB::transaction(function () use ($students, $academicYear, $terms, &$created, &$updated) {
+            foreach ($students as $student) {
+                $yearId = $student->academic_year_id ?? $academicYear->id;
+
+                $feeStructure = FeeStructure::where('class_id', $student->class_id)
+                    ->where('academic_year_id', $yearId)
+                    ->where('is_active', true)
                     ->first();
-                
-                if ($existingInvoice) {
-                    // Update existing invoice
-                    $existingInvoice->update([
-                        'amount' => $amount,
-                        'amount_paid' => $amountPaid,
-                        'due_date' => $dueDate,
-                        'status' => $status,
-                        'notes' => $status === 'paid' ? 'Fully paid' : ($status === 'partially_paid' ? 'Partial payment received' : null),
-                        'updated_at' => now(),
-                    ]);
-                    $updated++;
-                } else {
-                    // Generate unique invoice number
-                    $invoiceNumber = 'INV/' . date('Y') . '/' . str_pad($invoiceCounter, 4, '0', STR_PAD_LEFT);
-                    
-                    // Ensure invoice number is unique
-                    while (Invoice::where('invoice_number', $invoiceNumber)->exists()) {
-                        $invoiceCounter++;
-                        $invoiceNumber = 'INV/' . date('Y') . '/' . str_pad($invoiceCounter, 4, '0', STR_PAD_LEFT);
+
+                if (!$feeStructure) {
+                    $this->command->warn("No active fee structure for student {$student->admission_number}");
+                    continue;
+                }
+
+                foreach ($terms as $term) {
+                    [$amount, $dueDate] = $this->resolveAmountAndDueDate($feeStructure, $term);
+
+                    $status = $this->getRandomStatus();
+                    $amountPaid = match ($status) {
+                        'paid'           => $amount,
+                        'partially_paid' => round($amount * (rand(30, 70) / 100), 2),
+                        default          => 0,
+                    };
+
+                    $existing = Invoice::where('student_id', $student->id)
+                        ->where('term', $term)
+                        ->where('fee_structure_id', $feeStructure->id)
+                        ->first();
+
+                    if ($existing) {
+                        $existing->update([
+                            'amount'      => $amount,
+                            'amount_paid' => $amountPaid,
+                            'due_date'    => $dueDate,
+                            'status'      => $status,
+                            'notes'       => $this->statusNote($status),
+                        ]);
+                        $updated++;
+                    } else {
+                        Invoice::create([
+                            'student_id'       => $student->id,
+                            'fee_structure_id' => $feeStructure->id,
+                            'term'             => $term,
+                            'amount'           => $amount,
+                            'amount_paid'      => $amountPaid,
+                            'due_date'         => $dueDate,
+                            'status'           => $status,
+                            'notes'            => $this->statusNote($status),
+                            'created_at'       => $this->randomDateBetween(now()->subMonths(6), now()),
+                        ]);
+                        $created++;
                     }
-                    
-                    Invoice::create([
-                        'invoice_number' => $invoiceNumber,
-                        'student_id' => $student->id,
-                        'fee_structure_id' => $feeStructure->id,
-                        'term' => $term,
-                        'amount' => $amount,
-                        'amount_paid' => $amountPaid,
-                        'due_date' => $dueDate,
-                        'status' => $status,
-                        'notes' => $status === 'paid' ? 'Fully paid' : ($status === 'partially_paid' ? 'Partial payment received' : null),
-                        'created_at' => $this->randomDateBetween(now()->subMonths(6), now()),
-                        'updated_at' => now(),
-                    ]);
-                    $created++;
-                    $invoiceCounter++;
                 }
             }
-        }
-        
+        });
+
         $this->command->info("Invoices seeded: {$created} created, {$updated} updated.");
     }
-    
-    private function getDueDateForTerm($term)
+
+    private function resolveAmountAndDueDate(FeeStructure $feeStructure, string $term): array
+    {
+        if (is_array($feeStructure->payment_plan) && count($feeStructure->payment_plan) > 0) {
+            foreach ($feeStructure->payment_plan as $plan) {
+                if (is_array($plan) && ($plan['term'] ?? null) === $term) {
+                    return [
+                        (float) ($plan['amount'] ?? 0),
+                        $plan['due_date'] ?? $this->getDueDateForTerm($term),
+                    ];
+                }
+            }
+        }
+
+        $totalFees = (float) (
+            ($feeStructure->tuition_fees   ?? 0) +
+            ($feeStructure->activity_fees  ?? 0) +
+            ($feeStructure->library_fees   ?? 0) +
+            ($feeStructure->sports_fees    ?? 0) +
+            ($feeStructure->medical_fees   ?? 0) +
+            ($feeStructure->transport_fees ?? 0) +
+            ($feeStructure->boarding_fees  ?? 0) +
+            ($feeStructure->uniform_fees   ?? 0) +
+            ($feeStructure->other_fees     ?? 0)
+        );
+
+        return [round($totalFees / 3, 2), $this->getDueDateForTerm($term)];
+    }
+
+    private function getDueDateForTerm(string $term): string
     {
         $year = date('Y');
-        return match($term) {
-            'term_1' => "$year-03-15",
-            'term_2' => "$year-07-15",
-            'term_3' => "$year-11-15",
-            default => now()->addDays(30)->format('Y-m-d'),
+        return match ($term) {
+            'term_1' => "{$year}-03-15",
+            'term_2' => "{$year}-07-15",
+            'term_3' => "{$year}-11-15",
+            default  => now()->addDays(30)->format('Y-m-d'),
         };
     }
-    
-    private function getRandomStatus()
+
+    private function getRandomStatus(): string
     {
         $rand = rand(1, 10);
-        if ($rand <= 4) {
-            return 'paid';
-        } elseif ($rand <= 7) {
-            return 'partially_paid';
-        } else {
-            return 'pending';
-        }
+        if ($rand <= 4) return 'paid';
+        if ($rand <= 7) return 'partially_paid';
+        return 'pending';
     }
-    
-    private function randomDateBetween($startDate, $endDate)
+
+    private function statusNote(string $status): ?string
     {
-        $timestamp = rand($startDate->timestamp, $endDate->timestamp);
-        return \Carbon\Carbon::createFromTimestamp($timestamp);
+        return match ($status) {
+            'paid'           => 'Fully paid',
+            'partially_paid' => 'Partial payment received',
+            default          => null,
+        };
+    }
+
+    private function randomDateBetween($start, $end): \Carbon\Carbon
+    {
+        return \Carbon\Carbon::createFromTimestamp(rand($start->timestamp, $end->timestamp));
     }
 }

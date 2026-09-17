@@ -7,6 +7,7 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkAction;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
@@ -166,46 +167,52 @@ class InvoicesTable
                     ->toggle(),
             ])
             ->recordActions([
-                ViewAction::make()
-                    ->label('View')
-                    ->color('info')
-                    ->icon('heroicon-o-eye'),
-                
-                EditAction::make()
-                    ->label('Edit')
-                    ->color('warning')
-                    ->icon('heroicon-o-pencil'),
-                
-                Action::make('mark_as_paid')
-                    ->label('Mark as Paid')
-                    ->icon('heroicon-o-check-circle')
-                    ->color('success')
-                    ->requiresConfirmation()
-                    ->modalHeading('Mark Invoice as Paid')
-                    ->modalDescription('This will mark the invoice as fully paid. Are you sure?')
-                    ->action(function ($record) {
-                        $record->update([
-                            'amount_paid' => $record->amount,
-                            'status' => 'paid',
-                        ]);
-                        Notification::make()
-                            ->title('Invoice marked as paid')
-                            ->success()
-                            ->send();
-                    })
-                    ->visible(fn ($record) => $record->status !== 'paid'),
-                
-                Action::make('print_invoice')
-                    ->label('Print')
-                    ->icon('heroicon-o-printer')
+                ActionGroup::make([
+                    ViewAction::make()
+                        ->label('View')
+                        ->color('info')
+                        ->icon('heroicon-o-eye'),
+
+                    EditAction::make()
+                        ->label('Edit')
+                        ->color('warning')
+                        ->icon('heroicon-o-pencil'),
+
+                    Action::make('mark_as_paid')
+                        ->label('Mark as Paid')
+                        ->icon('heroicon-o-check-circle')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->modalHeading('Mark Invoice as Paid')
+                        ->modalDescription('This will mark the invoice as fully paid. Are you sure?')
+                        ->action(function ($record) {
+                            $record->update([
+                                'amount_paid' => $record->amount,
+                                'status' => 'paid',
+                            ]);
+                            Notification::make()
+                                ->title('Invoice marked as paid')
+                                ->success()
+                                ->send();
+                        })
+                        ->visible(fn ($record) => $record->status !== 'paid'),
+
+                    Action::make('print_invoice')
+                        ->label('Print')
+                        ->icon('heroicon-o-printer')
+                        ->color('gray')
+                        ->url(fn ($record) => route('invoices.print', $record), shouldOpenInNewTab: true),
+
+                    \Filament\Actions\DeleteAction::make()
+                        ->label('Delete')
+                        ->color('danger')
+                        ->icon('heroicon-o-trash')
+                        ->requiresConfirmation(),
+                ])
+                    ->label('Actions')
+                    ->icon('heroicon-m-ellipsis-vertical')
                     ->color('gray')
-                    ->url(fn ($record) => route('invoices.print', $record), shouldOpenInNewTab: true),
-                
-                \Filament\Actions\DeleteAction::make()
-                    ->label('Delete')
-                    ->color('danger')
-                    ->icon('heroicon-o-trash')
-                    ->requiresConfirmation(),
+                    ->tooltip('Actions'),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

@@ -7,6 +7,7 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkAction;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
@@ -29,22 +30,22 @@ class ResultsTable
                     ->sortable()
                     ->copyable()
                     ->toggleable(),
-                
+
                 TextColumn::make('student_full_name')
                     ->label('Student Name')
-                    ->getStateUsing(fn ($record) => $record->student->first_name . ' ' . $record->student->last_name)
+                    ->getStateUsing(fn($record) => $record->student->first_name . ' ' . $record->student->last_name)
                     ->searchable(query: function ($query, $search) {
                         return $query->whereHas('student', function ($q) use ($search) {
                             $q->where('first_name', 'like', "%{$search}%")
-                              ->orWhere('last_name', 'like', "%{$search}%");
+                                ->orWhere('last_name', 'like', "%{$search}%");
                         });
                     })
                     ->sortable()
                     ->weight('semibold'),
-                
+
                 TextColumn::make('student.class.class_code')
                     ->label('Class')
-                    ->getStateUsing(fn ($record) => $record->student->class->class_code ?? 'N/A')
+                    ->getStateUsing(fn($record) => $record->student->class->class_code ?? 'N/A')
                     ->searchable(query: function ($query, $search) {
                         return $query->whereHas('student.class', function ($q) use ($search) {
                             $q->where('class_code', 'like', "%{$search}%");
@@ -52,57 +53,58 @@ class ResultsTable
                     })
                     ->sortable()
                     ->toggleable(),
-                
+
                 TextColumn::make('exam.name')
                     ->label('Exam')
                     ->searchable()
                     ->sortable()
                     ->toggleable(),
-                
+
                 TextColumn::make('exam.term')
                     ->label('Term')
-                    ->getStateUsing(fn ($record) => ucfirst(str_replace('_', ' ', $record->exam->term)))
+                    ->getStateUsing(fn($record) => ucfirst(str_replace('_', ' ', $record->exam->term)))
                     ->searchable()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                
+
                 TextColumn::make('subject.code')
                     ->label('Subject Code')
                     ->searchable()
                     ->sortable()
                     ->toggleable(),
-                
+
                 TextColumn::make('subject.name')
                     ->label('Subject')
                     ->searchable()
                     ->sortable()
                     ->weight('medium'),
-                
+
                 TextColumn::make('marks_obtained')
                     ->label('Marks')
                     ->numeric(decimalPlaces: 2)
                     ->sortable()
                     ->toggleable(),
-                
+
                 TextColumn::make('total_marks')
                     ->label('Total')
                     ->numeric()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                
+
                 TextColumn::make('percentage')
                     ->label('%')
                     ->numeric(decimalPlaces: 2)
                     ->suffix('%')
                     ->sortable()
-                    ->color(fn ($state) => 
-                        $state >= 80 ? 'success' : 
-                        ($state >= 60 ? 'warning' : 
-                        ($state >= 40 ? 'info' : 'danger'))
+                    ->color(
+                        fn($state) =>
+                            $state >= 80 ? 'success' :
+                            ($state >= 60 ? 'warning' :
+                                ($state >= 40 ? 'info' : 'danger'))
                     )
                     ->weight('bold')
                     ->toggleable(),
-                
+
                 BadgeColumn::make('grade')
                     ->label('Grade')
                     ->colors([
@@ -121,19 +123,19 @@ class ResultsTable
                     ])
                     ->sortable()
                     ->toggleable(),
-                
+
                 TextColumn::make('teacher_comments')
                     ->label('Comments')
                     ->limit(40)
-                    ->tooltip(fn ($record) => $record->teacher_comments)
+                    ->tooltip(fn($record) => $record->teacher_comments)
                     ->toggleable(isToggledHiddenByDefault: true),
-                
+
                 TextColumn::make('created_at')
                     ->label('Recorded')
                     ->dateTime('d/m/Y H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                
+
                 TextColumn::make('updated_at')
                     ->label('Last Updated')
                     ->dateTime('d/m/Y H:i')
@@ -146,13 +148,13 @@ class ResultsTable
                     ->relationship('exam', 'name')
                     ->searchable()
                     ->preload(),
-                
+
                 SelectFilter::make('subject_id')
                     ->label('Subject')
                     ->relationship('subject', 'name')
                     ->searchable()
                     ->preload(),
-                
+
                 SelectFilter::make('class_id')
                     ->label('Class')
                     ->options(function () {
@@ -160,7 +162,7 @@ class ResultsTable
                     })
                     ->searchable()
                     ->preload(),
-                
+
                 SelectFilter::make('grade')
                     ->label('Grade')
                     ->options([
@@ -178,7 +180,7 @@ class ResultsTable
                         'E' => 'E',
                     ])
                     ->searchable(),
-                
+
                 Filter::make('percentage_range')
                     ->label('Percentage Range')
                     ->form([
@@ -197,50 +199,59 @@ class ResultsTable
                         return $query
                             ->when(
                                 $data['min_percentage'],
-                                fn ($query) => $query->where('percentage', '>=', $data['min_percentage']),
+                                fn($query) => $query->where('percentage', '>=', $data['min_percentage']),
                             )
                             ->when(
                                 $data['max_percentage'],
-                                fn ($query) => $query->where('percentage', '<=', $data['max_percentage']),
+                                fn($query) => $query->where('percentage', '<=', $data['max_percentage']),
                             );
                     }),
-                
+
                 Filter::make('passing')
                     ->label('Passing Students')
-                    ->query(fn ($query) => $query->where('percentage', '>=', 50))
+                    ->query(fn($query) => $query->where('percentage', '>=', 50))
                     ->toggle(),
-                
+
                 Filter::make('failing')
                     ->label('Failing Students')
-                    ->query(fn ($query) => $query->where('percentage', '<', 50))
+                    ->query(fn($query) => $query->where('percentage', '<', 50))
                     ->toggle(),
             ])
             ->recordActions([
-                ViewAction::make()
-                    ->label('View Details')
-                    ->color('info')
-                    ->icon('heroicon-o-eye'),
-                
-                EditAction::make()
-                    ->label('Edit Result')
-                    ->color('warning')
-                    ->icon('heroicon-o-pencil'),
-                
-                Action::make('print_result_slip')
-                    ->label('Print Slip')
-                    ->icon('heroicon-o-printer')
+                ActionGroup::make([
+                    ViewAction::make()
+                        ->label('View Details')
+                        ->color('info')
+                        ->icon('heroicon-o-eye'),
+
+                    EditAction::make()
+                        ->label('Edit Result')
+                        ->color('warning')
+                        ->icon('heroicon-o-pencil'),
+
+                    Action::make('print_result_slip')
+                        ->label('Print Slip')
+                        ->icon('heroicon-o-printer')
+                        ->color('gray')
+                        ->url(fn($record) => route('results.slip', [
+                            'studentId' => $record->student_id,
+                            'examId' => $record->exam_id,
+                        ]))
+                        ->openUrlInNewTab(),
+
+                    \Filament\Actions\DeleteAction::make()
+                        ->label('Delete')
+                        ->color('danger')
+                        ->icon('heroicon-o-trash')
+                        ->requiresConfirmation()
+                        ->modalHeading('Delete Result')
+                        ->modalDescription('Are you sure you want to delete this result? This action cannot be undone.')
+                        ->modalSubmitActionLabel('Yes, delete it'),
+                ])
+                    ->label('Actions')
+                    ->icon('heroicon-m-ellipsis-vertical')
                     ->color('gray')
-                    ->url(fn ($record) => route('results.print', $record), shouldOpenInNewTab: true)
-                    ->openUrlInNewTab(),
-                
-                \Filament\Actions\DeleteAction::make()
-                    ->label('Delete')
-                    ->color('danger')
-                    ->icon('heroicon-o-trash')
-                    ->requiresConfirmation()
-                    ->modalHeading('Delete Result')
-                    ->modalDescription('Are you sure you want to delete this result? This action cannot be undone.')
-                    ->modalSubmitActionLabel('Yes, delete it'),
+                    ->tooltip('Actions'),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
@@ -249,7 +260,7 @@ class ResultsTable
                         ->requiresConfirmation()
                         ->modalHeading('Delete Results')
                         ->modalDescription('Are you sure you want to delete the selected results?'),
-                    
+
                     BulkAction::make('export_results')
                         ->label('Export Selected')
                         ->icon('heroicon-o-document-arrow-down')
@@ -269,16 +280,16 @@ class ResultsTable
                                     'Comments' => $record->teacher_comments,
                                 ];
                             });
-                            
+
                             // Store as JSON or CSV
                             \Illuminate\Support\Facades\Storage::put('exports/results_' . now()->timestamp . '.json', json_encode($data));
-                            
+
                             Notification::make()
                                 ->title($records->count() . ' results exported successfully')
                                 ->success()
                                 ->send();
                         }),
-                    
+
                     BulkAction::make('bulk_print')
                         ->label('Bulk Print')
                         ->icon('heroicon-o-printer')
@@ -298,7 +309,7 @@ class ResultsTable
                     ->icon('heroicon-o-plus')
                     ->color('primary')
                     ->url(route('filament.admin.resources.results.create')),
-                
+
                 Action::make('bulk_upload')
                     ->label('Bulk Upload')
                     ->icon('heroicon-o-document-arrow-up')

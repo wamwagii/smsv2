@@ -2,16 +2,19 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Str;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 class Payment extends Model
 {
     protected $table = 'payments';
-    
+
     protected $fillable = [
         'idempotency_key',
         'invoice_id',
@@ -33,220 +36,244 @@ class Payment extends Model
         'receipt_number',
         'receipt_path',
     ];
-    
+
     protected $casts = [
-        'amount' => 'decimal:2',
-        'payment_date' => 'date',
-        'payment_time' => 'datetime',
+        'amount'           => 'decimal:2',
+        'payment_date'     => 'date',
+        'payment_time'     => 'datetime',
         'gateway_response' => 'array',
     ];
-    
-    protected static function boot()
+
+    protected static function booted(): void
     {
-        parent::boot();
-        
-        // Auto-generate idempotency key when creating
-        static::creating(function ($payment) {
+        // Auto-generate idempotency key + receipt number on create
+        static::creating(function (Payment $payment) {
             if (empty($payment->idempotency_key)) {
                 $payment->idempotency_key = (string) Str::uuid();
             }
-            
-            // Auto-generate receipt number when creating
+
             if (empty($payment->receipt_number)) {
                 $payment->receipt_number = static::generateReceiptNumber();
             }
         });
-        
-        // After payment is created or updated, update the invoice
-        static::saved(function ($payment) {
-            if ($payment->invoice) {
-                $payment->invoice->updateAfterPayment();
-            }
+
+        // After create/update, sync the invoice
+        static::saved(function (Payment $payment) {
+            $payment->invoice?->updateAfterPayment();
         });
-        
-        // Send notification when payment status changes to completed
-        static::updated(function ($payment) {
+
+        // Send notification when status becomes completed
+        static::updated(function (Payment $payment) {
             if ($payment->wasChanged('status') && $payment->status === 'completed') {
                 $payment->sendPaymentNotification();
             }
         });
     }
-    
+
+    /* -----------------------------------------------------------------
+     |  Receipt number generation
+     | -----------------------------------------------------------------
+     */
+
     /**
-     * Generate a unique receipt number with transaction lock to prevent duplicates
+     * Generate a unique receipt number with a transaction lock
+     * to prevent duplicates under concurrency.
+     *
      * Format: RCT/YYYY/XXXXX (e.g., RCT/2024/00001)
      */
     public static function generateReceiptNumber(): string
     {
         $year = date('Y');
-        
+
         return DB::transaction(function () use ($year) {
-            // Get the last receipt number for this year with lock
             $lastPayment = self::where('receipt_number', 'like', "RCT/{$year}/%")
                 ->lockForUpdate()
-                ->orderBy('receipt_number', 'desc')
+                ->orderByDesc('receipt_number')
                 ->first();
-            
+
+            $newNumber = '00001';
+
             if ($lastPayment && $lastPayment->receipt_number) {
-                // Extract the sequential number from the last receipt
                 preg_match('/RCT\/' . $year . '\/(\d+)/', $lastPayment->receipt_number, $matches);
                 if (isset($matches[1])) {
-                    $lastNumber = (int)$matches[1];
-                    $newNumber = str_pad($lastNumber + 1, 5, '0', STR_PAD_LEFT);
-                } else {
-                    $newNumber = '00001';
+                    $lastNumber = (int) $matches[1];
+                    $newNumber = str_pad((string) ($lastNumber + 1), 5, '0', STR_PAD_LEFT);
                 }
-            } else {
-                $newNumber = '00001';
             }
-            
+
             $receiptNumber = "RCT/{$year}/{$newNumber}";
-            
-            // Double-check uniqueness
+
             while (self::where('receipt_number', $receiptNumber)->exists()) {
-                $newNumber = str_pad((int)$newNumber + 1, 5, '0', STR_PAD_LEFT);
+                $newNumber = str_pad((string) ((int) $newNumber + 1), 5, '0', STR_PAD_LEFT);
                 $receiptNumber = "RCT/{$year}/{$newNumber}";
             }
-            
+
             return $receiptNumber;
         });
     }
-    
-    /**
-     * Send payment notification with PDF receipt to guardian
+
+    /* -----------------------------------------------------------------
+     |  Business rules
+     | -----------------------------------------------------------------
      */
-    public function sendPaymentNotification()
+
+    /**
+     * Whether this payment can be deleted.
+     * Only non-completed payments can be removed.
+     */
+    public function canBeDeleted(): bool
+    {
+        return $this->status !== 'completed';
+    }
+
+    /* -----------------------------------------------------------------
+     |  Notifications
+     | -----------------------------------------------------------------
+     */
+
+    /**
+     * Send payment notification with PDF receipt to guardian.
+     */
+    public function sendPaymentNotification(): void
     {
         $guardian = $this->parent;
-        $student = $this->student;
-        
-        if ($guardian && $guardian->email) {
-            try {
-                // Generate PDF receipt
-                $pdfPath = $this->generateReceiptPdf();
-                
-                // Send email notification
-                Mail::to($guardian->email)->send(new \App\Mail\PaymentReceiptMail($this, $pdfPath));
-                
-                // Update receipt path
-                $this->receipt_path = $pdfPath;
-                $this->saveQuietly();
-            } catch (\Exception $e) {
-                // Log error but don't fail the payment
-                \Log::error('Failed to send payment notification: ' . $e->getMessage());
-            }
+        $student  = $this->student;
+
+        if (!$guardian || !$guardian->email) {
+            return;
+        }
+
+        try {
+            $pdfPath = $this->generateReceiptPdf();
+
+            Mail::to($guardian->email)
+                ->send(new \App\Mail\PaymentReceiptMail($this, $pdfPath));
+
+            $this->receipt_path = $pdfPath;
+            $this->saveQuietly();
+        } catch (\Throwable $e) {
+            Log::error('Failed to send payment notification: ' . $e->getMessage());
         }
     }
-    
+
     /**
-     * Generate PDF receipt
+     * Generate PDF receipt and store it in public/receipts.
+     * Returns the relative path (for use in Storage::url()).
      */
-    public function generateReceiptPdf()
+    public function generateReceiptPdf(): string
     {
-        // Create receipts directory if it doesn't exist
         $directory = storage_path('app/public/receipts');
-        if (!file_exists($directory)) {
+
+        if (!is_dir($directory)) {
             mkdir($directory, 0777, true);
         }
-        
+
         $filename = 'receipt_' . $this->receipt_number . '_' . date('Ymd_His') . '.pdf';
-        $path = 'receipts/' . $filename;
+        $path     = 'receipts/' . $filename;
         $fullPath = storage_path('app/public/' . $path);
-        
-        // Generate PDF
+
         $pdf = Pdf::loadView('pdf.payment_receipt', [
-            'payment' => $this,
-            'student' => $this->student,
+            'payment'  => $this,
+            'student'  => $this->student,
             'guardian' => $this->parent,
-            'invoice' => $this->invoice,
+            'invoice'  => $this->invoice,
         ]);
-        
+
         $pdf->save($fullPath);
-        
+
         return $path;
     }
-    
-    /**
-     * Get the formatted amount
+
+    /* -----------------------------------------------------------------
+     |  Accessors
+     | -----------------------------------------------------------------
      */
+
     public function getFormattedAmountAttribute(): string
     {
-        return 'KES ' . number_format($this->amount, 2);
+        return 'KES ' . number_format((float) $this->amount, 2);
     }
-    
-    /**
-     * Get the payment method display name
-     */
+
     public function getPaymentMethodDisplayAttribute(): string
     {
-        return match($this->payment_method) {
-            'mpesa' => 'M-Pesa',
+        return match ($this->payment_method) {
+            'mpesa'         => 'M-Pesa',
             'bank_transfer' => 'Bank Transfer',
-            'cash' => 'Cash',
-            'cheque' => 'Cheque',
-            'card' => 'Card',
-            default => ucfirst($this->payment_method),
+            'cash'          => 'Cash',
+            'cheque'        => 'Cheque',
+            'card'          => 'Card',
+            default         => ucfirst((string) $this->payment_method),
         };
     }
-    
+
     /**
-     * Get the status display name with badge color
+     * Return ['text' => 'Completed', 'color' => 'success'] style tuple.
+     *
+     * @return array{text: string, color: string}
      */
     public function getStatusDisplayAttribute(): array
     {
-        return match($this->status) {
-            'completed' => ['text' => 'Completed', 'color' => 'success'],
-            'pending' => ['text' => 'Pending', 'color' => 'warning'],
+        return match ($this->status) {
+            'completed'  => ['text' => 'Completed',  'color' => 'success'],
+            'pending'    => ['text' => 'Pending',    'color' => 'warning'],
             'processing' => ['text' => 'Processing', 'color' => 'info'],
-            'failed' => ['text' => 'Failed', 'color' => 'danger'],
-            'refunded' => ['text' => 'Refunded', 'color' => 'secondary'],
-            default => ['text' => ucfirst($this->status), 'color' => 'secondary'],
+            'failed'     => ['text' => 'Failed',     'color' => 'danger'],
+            'refunded'   => ['text' => 'Refunded',   'color' => 'secondary'],
+            default      => ['text' => ucfirst((string) $this->status), 'color' => 'secondary'],
         };
     }
-    
-    // Relationships
-    public function invoice()
+
+    /* -----------------------------------------------------------------
+     |  Relationships
+     | -----------------------------------------------------------------
+     */
+
+    public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
     }
-    
-    public function student()
+
+    public function student(): BelongsTo
     {
         return $this->belongsTo(Student::class);
     }
-    
-    public function parent()
+
+    public function parent(): BelongsTo
     {
         return $this->belongsTo(Guardian::class, 'parent_id');
     }
-    
-    // Scopes
-    public function scopeCompleted($query)
+
+    /* -----------------------------------------------------------------
+     |  Scopes
+     | -----------------------------------------------------------------
+     */
+
+    public function scopeCompleted(Builder $query): Builder
     {
         return $query->where('status', 'completed');
     }
-    
-    public function scopePending($query)
+
+    public function scopePending(Builder $query): Builder
     {
         return $query->where('status', 'pending');
     }
-    
-    public function scopeForStudent($query, $studentId)
+
+    public function scopeForStudent(Builder $query, int $studentId): Builder
     {
         return $query->where('student_id', $studentId);
     }
-    
-    public function scopeForDateRange($query, $startDate, $endDate)
+
+    public function scopeForDateRange(Builder $query, $startDate, $endDate): Builder
     {
         return $query->whereBetween('payment_date', [$startDate, $endDate]);
     }
-    
-    public function scopeMpesa($query)
+
+    public function scopeMpesa(Builder $query): Builder
     {
         return $query->where('payment_method', 'mpesa');
     }
-    
-    public function scopeCash($query)
+
+    public function scopeCash(Builder $query): Builder
     {
         return $query->where('payment_method', 'cash');
     }

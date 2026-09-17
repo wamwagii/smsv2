@@ -7,6 +7,7 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkAction;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
@@ -202,45 +203,51 @@ class PaymentsTable
                     ->toggle(),
             ])
             ->recordActions([
-                ViewAction::make()
-                    ->label('View')
-                    ->color('info')
-                    ->icon('heroicon-o-eye'),
-                
-                EditAction::make()
-                    ->label('Edit')
-                    ->color('warning')
-                    ->icon('heroicon-o-pencil'),
-                
-                Action::make('print_receipt')
-                    ->label('Print Receipt')
-                    ->icon('heroicon-o-printer')
+                ActionGroup::make([
+                    ViewAction::make()
+                        ->label('View')
+                        ->color('info')
+                        ->icon('heroicon-o-eye'),
+
+                    EditAction::make()
+                        ->label('Edit')
+                        ->color('warning')
+                        ->icon('heroicon-o-pencil'),
+
+                    Action::make('print_receipt')
+                        ->label('Print Receipt')
+                        ->icon('heroicon-o-printer')
+                        ->color('gray')
+                        ->url(fn ($record) => route('payments.receipt', $record), shouldOpenInNewTab: true),
+
+                    Action::make('mark_completed')
+                        ->label('Mark as Completed')
+                        ->icon('heroicon-o-check-circle')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->visible(fn ($record) => $record->status === 'pending')
+                        ->action(function ($record) {
+                            $record->update(['status' => 'completed']);
+                            // Update invoice balance
+                            if ($record->invoice) {
+                                $record->invoice->updateBalance();
+                            }
+                            Notification::make()
+                                ->title('Payment marked as completed')
+                                ->success()
+                                ->send();
+                        }),
+
+                    \Filament\Actions\DeleteAction::make()
+                        ->label('Delete')
+                        ->color('danger')
+                        ->icon('heroicon-o-trash')
+                        ->requiresConfirmation(),
+                ])
+                    ->label('Actions')
+                    ->icon('heroicon-m-ellipsis-vertical')
                     ->color('gray')
-                    ->url(fn ($record) => route('payments.receipt', $record), shouldOpenInNewTab: true),
-                
-                Action::make('mark_completed')
-                    ->label('Mark as Completed')
-                    ->icon('heroicon-o-check-circle')
-                    ->color('success')
-                    ->requiresConfirmation()
-                    ->visible(fn ($record) => $record->status === 'pending')
-                    ->action(function ($record) {
-                        $record->update(['status' => 'completed']);
-                        // Update invoice balance
-                        if ($record->invoice) {
-                            $record->invoice->updateBalance();
-                        }
-                        Notification::make()
-                            ->title('Payment marked as completed')
-                            ->success()
-                            ->send();
-                    }),
-                
-                \Filament\Actions\DeleteAction::make()
-                    ->label('Delete')
-                    ->color('danger')
-                    ->icon('heroicon-o-trash')
-                    ->requiresConfirmation(),
+                    ->tooltip('Actions'),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
