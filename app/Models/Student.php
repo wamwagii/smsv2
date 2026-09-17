@@ -237,4 +237,61 @@ class Student extends Model
     {
         return $query->where('status', 'active');
     }
+    /* -----------------------------------------------------------------
+ |  Fee balance helpers
+ | -----------------------------------------------------------------
+ */
+
+/**
+ * Total billed across all this student's invoices.
+ */
+public function getTotalBilledAttribute(): float
+{
+    return (float) $this->invoices()->sum('amount');
+}
+
+/**
+ * Total paid across all this student's invoices.
+ * Uses the invoices' own amount_paid column, so it stays in sync
+ * with invoice-level partial-payment tracking.
+ */
+public function getTotalPaidAttribute(): float
+{
+    return (float) $this->invoices()->sum('amount_paid');
+}
+
+/**
+ * Outstanding balance. Positive = owes money. Negative = overpaid.
+ */
+public function getBalanceAttribute(): float
+{
+    return round($this->total_billed - $this->total_paid, 2);
+}
+
+/**
+ * True when the student owes money.
+ */
+public function getHasBalanceAttribute(): bool
+{
+    return $this->balance > 0.01;
+}
+
+/**
+ * True when the student has paid exactly (or more than) what they owe
+ * AND has at least one invoice.
+ */
+public function getIsFullyPaidAttribute(): bool
+{
+    return $this->invoices()->exists() && $this->balance <= 0.01;
+}
+
+/**
+ * Number of unpaid (pending / partially_paid / overdue) invoices.
+ */
+public function getUnpaidInvoicesCountAttribute(): int
+{
+    return $this->invoices()
+        ->whereIn('status', ['pending', 'partially_paid', 'overdue'])
+        ->count();
+}
 }
