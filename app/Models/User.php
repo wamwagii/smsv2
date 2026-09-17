@@ -3,19 +3,33 @@
 namespace App\Models;
 
 use Database\Factories\UserFactory;
+use Filament\Auth\MultiFactor\App\Concerns\InteractsWithAppAuthentication;
+use Filament\Auth\MultiFactor\App\Concerns\InteractsWithAppAuthenticationRecovery;
+use Filament\Auth\MultiFactor\App\Contracts\HasAppAuthentication;
+use Filament\Auth\MultiFactor\App\Contracts\HasAppAuthenticationRecovery;
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Panel;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
-#[Fillable(['name', 'email', 'password', 'is_admin'])]
+#[Fillable(['name', 'email', 'password'])]   // is_admin removed
 #[Hidden(['password', 'remember_token'])]
-class User extends Authenticatable
+class User extends Authenticatable implements
+    FilamentUser,
+    MustVerifyEmail,
+    HasAppAuthentication,
+    HasAppAuthenticationRecovery
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
+    use InteractsWithAppAuthentication;
+    use InteractsWithAppAuthenticationRecovery;
 
     protected function casts(): array
     {
@@ -27,6 +41,16 @@ class User extends Authenticatable
     }
 
     /* -----------------------------------------------------------------
+     |  Filament
+     | -----------------------------------------------------------------
+     */
+
+    public function canAccessPanel(Panel $panel): bool
+    {
+        return $this->isAdmin();
+    }
+
+    /* -----------------------------------------------------------------
      |  Boot — guard against locking yourself out
      | -----------------------------------------------------------------
      */
@@ -34,31 +58,32 @@ class User extends Authenticatable
     protected static function booted(): void
     {
         static::updating(function (User $user) {
-            // If the is_admin flag is being changed FROM true TO false,
-            // and this is the last remaining admin, block it.
             if (
                 $user->isDirty('is_admin')
                 && $user->getOriginal('is_admin')
                 && ! $user->is_admin
-                && static::where('is_admin', true)->count() <= 1
             ) {
-                throw new \RuntimeException(
-                    'Cannot remove the admin role from the last administrator. '
-                    . 'Promote another user to admin first.'
-                );
+                DB::transaction(function () {
+                    if (static::where('is_admin', true)->lockForUpdate()->count() <= 1) {
+                        throw new \RuntimeException(
+                            'Cannot remove the admin role from the last administrator. '
+                            . 'Promote another user to admin first.'
+                        );
+                    }
+                });
             }
         });
 
         static::deleting(function (User $user) {
-            // Prevent deleting the last remaining admin.
-            if (
-                $user->is_admin
-                && static::where('is_admin', true)->count() <= 1
-            ) {
-                throw new \RuntimeException(
-                    'Cannot delete the last administrator. '
-                    . 'Promote another user to admin first.'
-                );
+            if ($user->is_admin) {
+                DB::transaction(function () {
+                    if (static::where('is_admin', true)->lockForUpdate()->count() <= 1) {
+                        throw new \RuntimeException(
+                            'Cannot delete the last administrator. '
+                            . 'Promote another user to admin first.'
+                        );
+                    }
+                });
             }
         });
     }
@@ -73,19 +98,11 @@ class User extends Authenticatable
         return (bool) $this->is_admin;
     }
 
-    public function hasRole(string $role): bool
-    {
-        return $role === 'admin' && (bool) $this->is_admin;
-    }
-
     /* -----------------------------------------------------------------
-     |  Static helpers — typed for IDE + static analysis
+     |  Static helpers
      | -----------------------------------------------------------------
      */
 
-    /**
-     * The currently authenticated user, or null.
-     */
     public static function current(): ?self
     {
         $user = Auth::user();
@@ -93,25 +110,16 @@ class User extends Authenticatable
         return $user instanceof self ? $user : null;
     }
 
-    /**
-     * Whether the currently authenticated user is an admin.
-     */
     public static function currentIsAdmin(): bool
     {
         return static::current()?->isAdmin() ?? false;
     }
 
-    /**
-     * ID of the currently authenticated user, or null.
-     */
     public static function currentId(): ?int
     {
         return static::current()?->id;
     }
 
-    /**
-     * Whether the given user is the last remaining admin.
-     */
     public static function isLastAdmin(?self $user = null): bool
     {
         if ($user && ! $user->is_admin) {
