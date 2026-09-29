@@ -8,6 +8,7 @@ use App\Models\SmsBatch;
 use App\Models\SmsMessage;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class SmsBatchService
 {
@@ -72,12 +73,11 @@ class SmsBatchService
     }
 
     /**
-     * Resolve unique guardians who are eligible for an SMS.
+     * Resolve recipients.
      *
-     * For the `balance` audience, each guardian is annotated with a
-     * `balance_owed` property computed from the SAME SQL as the eligibility
-     * filter — guaranteeing that personalise() can never render KES 0.00
-     * for a guardian who passed the filter.
+     * POLICY: Only a student's father or mother receives SMS.
+     * Guardians (relationship = 'guardian') and others are never contacted,
+     * even if linked to a student and opted in.
      *
      * @return Collection<int, Guardian>
      */
@@ -88,46 +88,7 @@ class SmsBatchService
         float $minBalance = 0.01,
     ): Collection {
         if ($audience === 'balance') {
-            $minBalance = max($minBalance, 1.00);
-
-            $eligible = $this->eligibleBalanceGuardians($minBalance);
-
-            if ($eligible->isEmpty()) {
-                return collect();
-            }
-
-            $guardianIds = $eligible->pluck('parent_id')->all();
-            $balances    = $eligible->pluck('balance', 'parent_id');
-
-            return Guardian::query()
-                ->whereIn('parents.id', $guardianIds)
-                ->where('parents.status', 'active')
-                ->whereNotNull('parents.phone_number')
-                ->where('parents.phone_number', '!=', '')
-                ->with(['students' => function ($q) {
-                    $q->where('students.status', 'active')
-                      ->where('student_parent.receives_notifications', true)
-                      ->select(
-                          'students.id',
-                          'students.first_name',
-                          'students.middle_name',
-                          'students.last_name',
-                          'students.class_id',
-                      );
-                }])
-                ->get()
-                ->map(function (Guardian $guardian) use ($balances) {
-                    $primary = $guardian->students->firstWhere('pivot.is_primary_contact', true)
-                        ?? $guardian->students->first();
-
-                    $guardian->primary_student_id = $primary?->id;
-                    $guardian->primary_student    = $primary;
-                    $guardian->balance_owed       = (float) ($balances[$guardian->id] ?? 0.0);
-
-                    return $guardian;
-                })
-                ->filter(fn (Guardian $g) => $g->students->isNotEmpty())
-                ->values();
+            return $this->resolveBalanceRecipients($minBalance);
         }
 
         $studentConstraint = function ($q) use ($audience, $classId) {
@@ -145,6 +106,7 @@ class SmsBatchService
             ->where('parents.status', 'active')
             ->whereNotNull('parents.phone_number')
             ->where('parents.phone_number', '!=', '')
+            ->whereIn('parents.relationship', Guardian::SMS_RELATIONSHIPS)
             ->whereHas('students', $studentConstraint);
 
         if ($audience === 'custom' && ! empty($guardianIds)) {
@@ -178,6 +140,56 @@ class SmsBatchService
             ->values();
     }
 
+    /**
+     * Balance audience. Only father/mother contacts are considered.
+     *
+     * @return Collection<int, Guardian>
+     */
+    protected function resolveBalanceRecipients(float $minBalance): Collection
+    {
+        $minBalance = max($minBalance, 1.00);
+
+        $eligible = $this->eligibleBalanceGuardians($minBalance);
+
+        if ($eligible->isEmpty()) {
+            return collect();
+        }
+
+        $guardianIds = $eligible->pluck('parent_id')->all();
+        $balances    = $eligible->pluck('balance', 'parent_id');
+
+        return Guardian::query()
+            ->whereIn('parents.id', $guardianIds)
+            ->where('parents.status', 'active')
+            ->whereNotNull('parents.phone_number')
+            ->where('parents.phone_number', '!=', '')
+            ->whereIn('parents.relationship', Guardian::SMS_RELATIONSHIPS)
+            ->with(['students' => function ($q) {
+                $q->where('students.status', 'active')
+                  ->where('student_parent.receives_notifications', true)
+                  ->select(
+                      'students.id',
+                      'students.first_name',
+                      'students.middle_name',
+                      'students.last_name',
+                      'students.class_id',
+                  );
+            }])
+            ->get()
+            ->map(function (Guardian $guardian) use ($balances) {
+                $primary = $guardian->students->firstWhere('pivot.is_primary_contact', true)
+                    ?? $guardian->students->first();
+
+                $guardian->primary_student_id = $primary?->id;
+                $guardian->primary_student    = $primary;
+                $guardian->balance_owed       = (float) ($balances[$guardian->id] ?? 0.0);
+
+                return $guardian;
+            })
+            ->filter(fn (Guardian $g) => $g->students->isNotEmpty())
+            ->values();
+    }
+
     public function previewCount(
         string $audience,
         ?int $classId = null,
@@ -188,26 +200,25 @@ class SmsBatchService
     }
 
     /**
-     * Eligible guardians for the `balance` audience, each with their
-     * outstanding balance. One query, one row per guardian.
-     *
-     * The SQL here is intentionally identical to what personalise() used to
-     * compute per-guardian, so filter and rendered balance cannot drift.
+     * Guardians (parents only) who owe money, with their outstanding balance.
+     * The relationship filter is part of the SQL — so a "guardian" (uncle)
+     * with a high balance is never included.
      *
      * @return \Illuminate\Support\Collection<int, object{parent_id:int, balance:float}>
      */
     protected function eligibleBalanceGuardians(float $minBalance): Collection
     {
-        // Prefer the generated `balance` column if the schema provides it.
         $balanceExpr = $this->invoicesHaveBalanceColumn()
             ? 'SUM(invoices.balance)'
             : 'SUM(invoices.amount - invoices.amount_paid)';
 
         return DB::table('student_parent')
+            ->join('parents', 'parents.id', '=', 'student_parent.parent_id')
             ->join('students', 'students.id', '=', 'student_parent.student_id')
             ->join('invoices', 'invoices.student_id', '=', 'students.id')
             ->where('student_parent.receives_notifications', true)
             ->where('students.status', 'active')
+            ->whereIn('parents.relationship', Guardian::SMS_RELATIONSHIPS)
             ->whereNotIn('invoices.status', ['paid', 'waived'])
             ->groupBy('student_parent.parent_id')
             ->havingRaw("{$balanceExpr} > CAST(? AS REAL)", [
@@ -222,7 +233,7 @@ class SmsBatchService
         static $has = null;
 
         if ($has === null) {
-            $has = \Illuminate\Support\Facades\Schema::hasColumn('invoices', 'balance');
+            $has = Schema::hasColumn('invoices', 'balance');
         }
 
         return $has;
@@ -233,11 +244,6 @@ class SmsBatchService
      *
      * Supported: {guardian_name}, {student_name}, {school_name},
      *            {balance}, {balance_formatted}
-     *
-     * The balance comes from `balance_owed`, which was populated by
-     * resolveRecipients() using the exact same SQL as the eligibility
-     * filter. A guardian selected by the filter can therefore never
-     * receive KES 0.00.
      */
     protected function personalise(string $body, Guardian $guardian): string
     {

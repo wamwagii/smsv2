@@ -1,3 +1,6 @@
+@php
+    use App\Enums\InvoiceStatus;
+@endphp
 <!DOCTYPE html>
 <html>
 <head>
@@ -48,7 +51,7 @@
             <th>Due Date:</th>
             <td>{{ $invoice->due_date?->format('d/m/Y') ?? 'N/A' }}</td>
             <th>Status:</th>
-            <td>{{ ucfirst($invoice->status) }}</td>
+            <td>{{ $invoice->status->label() }}</td>
         </tr>
     </table>
 
@@ -107,10 +110,12 @@
     @endif
 
     <div class="footer">
-        @if($invoice->status === 'paid')
+        @if($invoice->status === InvoiceStatus::Paid)
             <p>Thank you for your payment!</p>
-        @elseif($invoice->status === 'overdue')
+        @elseif($invoice->status === InvoiceStatus::Overdue)
             <p style="color: #dc2626;">This invoice is overdue. Please settle at the earliest.</p>
+        @elseif($invoice->status === InvoiceStatus::Waived || $invoice->status === InvoiceStatus::Cancelled)
+            <p>This invoice has been written off. No payment is required.</p>
         @else
             <p>Please make payment by the due date.</p>
         @endif

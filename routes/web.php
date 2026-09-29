@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\PrintController;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schedule;
 
 Route::get('/', function () {
     return view('welcome');
@@ -22,4 +23,8 @@ Route::middleware(['auth'])->group(function () {
     // Full result slip — all subjects for one student in one exam
 Route::get('/results/slip/{studentId}/{examId}', [PrintController::class, 'printResultSlip'])
     ->name('results.slip');
+
+    Schedule::command('audit:accounting')
+    ->weekly()
+    ->emailOutputOnFailure(config('school.email'));
 });

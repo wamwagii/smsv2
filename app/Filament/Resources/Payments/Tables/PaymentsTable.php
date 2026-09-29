@@ -2,22 +2,22 @@
 
 namespace App\Filament\Resources\Payments\Tables;
 
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
-use Filament\Actions\ViewAction;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkAction;
-use Filament\Tables\Table;
-use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Columns\BadgeColumn;
-use Filament\Tables\Columns\IconColumn;
-use Filament\Tables\Filters\SelectFilter;
-use Filament\Tables\Filters\Filter;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\DeleteBulkAction;
+use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
-use Illuminate\Database\Eloquent\Collection;
 use Filament\Notifications\Notification;
+use Filament\Tables\Columns\BadgeColumn;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Collection;
 
 class PaymentsTable
 {
@@ -32,18 +32,18 @@ class PaymentsTable
                     ->weight('bold')
                     ->color('primary')
                     ->copyable(),
-                
+
                 TextColumn::make('invoice.invoice_number')
                     ->label('Invoice No.')
                     ->searchable()
                     ->sortable(),
-                
+
                 TextColumn::make('student.admission_number')
                     ->label('Admission No.')
                     ->searchable()
                     ->sortable()
                     ->toggleable(),
-                
+
                 TextColumn::make('student.first_name')
                     ->label('Student Name')
                     ->getStateUsing(fn ($record) => $record->student ? $record->student->first_name . ' ' . $record->student->last_name : '-')
@@ -54,7 +54,7 @@ class PaymentsTable
                         });
                     })
                     ->sortable(),
-                
+
                 TextColumn::make('student.class.class_code')
                     ->label('Class')
                     ->getStateUsing(fn ($record) => $record->student && $record->student->class ? $record->student->class->class_code : '-')
@@ -64,68 +64,68 @@ class PaymentsTable
                         });
                     })
                     ->sortable(),
-                
+
                 TextColumn::make('amount')
                     ->label('Amount')
                     ->money('KES')
                     ->sortable()
                     ->weight('bold'),
-                
+
                 BadgeColumn::make('payment_method')
                     ->label('Method')
                     ->colors([
                         'success' => 'mpesa',
                         'primary' => 'bank_transfer',
                         'warning' => 'cash',
-                        'info' => 'card',
-                        'gray' => 'cheque',
+                        'info'    => 'card',
+                        'gray'    => 'cheque',
                     ])
                     ->icons([
-                        'heroicon-o-phone' => 'mpesa',
-                        'heroicon-o-building-library' => 'bank_transfer',
-                        'heroicon-o-banknotes' => 'cash',
-                        'heroicon-o-credit-card' => 'card',
+                        'heroicon-o-phone'              => 'mpesa',
+                        'heroicon-o-building-library'   => 'bank_transfer',
+                        'heroicon-o-banknotes'          => 'cash',
+                        'heroicon-o-credit-card'        => 'card',
                     ])
                     ->formatStateUsing(fn ($state) => ucfirst(str_replace('_', ' ', $state))),
-                
+
                 BadgeColumn::make('status')
                     ->label('Status')
                     ->colors([
                         'success' => 'completed',
                         'warning' => 'pending',
-                        'info' => 'processing',
-                        'danger' => 'failed',
-                        'gray' => 'refunded',
+                        'info'    => 'processing',
+                        'danger'  => 'failed',
+                        'gray'    => 'refunded',
                     ])
                     ->icons([
                         'heroicon-o-check-circle' => 'completed',
-                        'heroicon-o-clock' => 'pending',
-                        'heroicon-o-arrow-path' => 'processing',
-                        'heroicon-o-x-circle' => 'failed',
+                        'heroicon-o-clock'        => 'pending',
+                        'heroicon-o-arrow-path'   => 'processing',
+                        'heroicon-o-x-circle'     => 'failed',
                     ]),
-                
+
                 TextColumn::make('mpesa_receipt')
                     ->label('M-Pesa Receipt')
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->copyable(),
-                
+
                 TextColumn::make('transaction_reference')
                     ->label('Transaction Ref')
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                
+
                 TextColumn::make('payment_date')
                     ->label('Payment Date')
                     ->date('d/m/Y')
                     ->sortable(),
-                
+
                 TextColumn::make('payment_time')
                     ->label('Time')
                     ->time('H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                
+
                 TextColumn::make('parent.first_name')
                     ->label('Paid By')
                     ->getStateUsing(fn ($record) => $record->parent ? $record->parent->first_name . ' ' . $record->parent->last_name : '-')
@@ -136,7 +136,7 @@ class PaymentsTable
                         });
                     })
                     ->toggleable(isToggledHiddenByDefault: true),
-                
+
                 TextColumn::make('created_at')
                     ->label('Created')
                     ->dateTime('d/m/Y H:i')
@@ -147,23 +147,23 @@ class PaymentsTable
                 SelectFilter::make('payment_method')
                     ->label('Payment Method')
                     ->options([
-                        'mpesa' => 'M-Pesa',
+                        'mpesa'         => 'M-Pesa',
                         'bank_transfer' => 'Bank Transfer',
-                        'cash' => 'Cash',
-                        'cheque' => 'Cheque',
-                        'card' => 'Card',
+                        'cash'          => 'Cash',
+                        'cheque'        => 'Cheque',
+                        'card'          => 'Card',
                     ]),
-                
+
                 SelectFilter::make('status')
                     ->label('Status')
                     ->options([
-                        'pending' => 'Pending',
+                        'pending'    => 'Pending',
                         'processing' => 'Processing',
-                        'completed' => 'Completed',
-                        'failed' => 'Failed',
-                        'refunded' => 'Refunded',
+                        'completed'  => 'Completed',
+                        'failed'     => 'Failed',
+                        'refunded'   => 'Refunded',
                     ]),
-                
+
                 SelectFilter::make('student.class_id')
                     ->label('Class')
                     ->options(function () {
@@ -171,14 +171,12 @@ class PaymentsTable
                     })
                     ->searchable()
                     ->preload(),
-                
+
                 Filter::make('payment_date_range')
                     ->label('Payment Date Range')
                     ->form([
-                        DatePicker::make('payment_from')
-                            ->label('From'),
-                        DatePicker::make('payment_until')
-                            ->label('To'),
+                        DatePicker::make('payment_from')->label('From'),
+                        DatePicker::make('payment_until')->label('To'),
                     ])
                     ->query(function ($query, array $data) {
                         return $query
@@ -191,12 +189,12 @@ class PaymentsTable
                                 fn ($query) => $query->whereDate('payment_date', '<=', $data['payment_until']),
                             );
                     }),
-                
+
                 Filter::make('today')
-                    ->label('Today\'s Payments')
+                    ->label("Today's Payments")
                     ->query(fn ($query) => $query->whereDate('payment_date', today()))
                     ->toggle(),
-                
+
                 Filter::make('this_week')
                     ->label('This Week')
                     ->query(fn ($query) => $query->whereBetween('payment_date', [now()->startOfWeek(), now()->endOfWeek()]))
@@ -227,18 +225,17 @@ class PaymentsTable
                         ->requiresConfirmation()
                         ->visible(fn ($record) => $record->status === 'pending')
                         ->action(function ($record) {
+                            // Updating status triggers Payment::saved,
+                            // which calls $payment->invoice?->updateAfterPayment().
                             $record->update(['status' => 'completed']);
-                            // Update invoice balance
-                            if ($record->invoice) {
-                                $record->invoice->updateBalance();
-                            }
+
                             Notification::make()
                                 ->title('Payment marked as completed')
                                 ->success()
                                 ->send();
                         }),
 
-                    \Filament\Actions\DeleteAction::make()
+                    DeleteAction::make()
                         ->label('Delete')
                         ->color('danger')
                         ->icon('heroicon-o-trash')
@@ -254,34 +251,34 @@ class PaymentsTable
                     DeleteBulkAction::make()
                         ->label('Delete Selected')
                         ->requiresConfirmation(),
-                    
+
                     BulkAction::make('mark_completed_bulk')
                         ->label('Mark as Completed')
                         ->icon('heroicon-o-check-circle')
                         ->color('success')
                         ->action(function (Collection $records) {
                             $count = 0;
+
                             foreach ($records as $record) {
                                 if ($record->status === 'pending') {
+                                    // Each update fires Payment::saved,
+                                    // which syncs the parent invoice.
                                     $record->update(['status' => 'completed']);
-                                    if ($record->invoice) {
-                                        $record->invoice->updateBalance();
-                                    }
                                     $count++;
                                 }
                             }
+
                             Notification::make()
                                 ->title($count . ' payments marked as completed')
                                 ->success()
                                 ->send();
                         }),
-                    
+
                     BulkAction::make('generate_receipts')
                         ->label('Generate Receipts')
                         ->icon('heroicon-o-document-text')
                         ->color('info')
                         ->action(function (Collection $records) {
-                            // Logic to generate PDF receipts
                             Notification::make()
                                 ->title('Receipt generation started for ' . $records->count() . ' payments')
                                 ->info()

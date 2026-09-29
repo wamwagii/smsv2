@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\InvoiceStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -28,6 +29,7 @@ class Invoice extends Model
         'amount'      => 'decimal:2',
         'amount_paid' => 'decimal:2',
         'due_date'    => 'date',
+        'status'      => InvoiceStatus::class,
     ];
 
     /* -----------------------------------------------------------------
@@ -42,6 +44,10 @@ class Invoice extends Model
                 $invoice->invoice_number = static::generateInvoiceNumber();
             }
         });
+
+        // NOTE: No `saving` hook here. `balance` is a generated column
+        // (storedAs('amount - amount_paid')) and cannot be written to.
+        // The accessor below handles the written-off override.
     }
 
     /* -----------------------------------------------------------------
@@ -104,20 +110,29 @@ class Invoice extends Model
             return false;
         }
 
-        return $this->status !== 'paid';
+        return $this->status !== InvoiceStatus::Paid;
     }
 
     /**
      * Recalculate amount_paid and status from completed payments.
+     *
+     * The invoice row is locked so two concurrent payment recordings
+     * cannot interleave and produce a lost update.
      */
     public function updateAfterPayment(): self
     {
         return DB::transaction(function () {
+            // Lock the invoice row before reading, so concurrent calls
+            // serialise on this single row.
+            self::query()
+                ->whereKey($this->getKey())
+                ->lockForUpdate()
+                ->first();
+
             $this->refresh();
 
             $totalPaid = (float) $this->payments()
                 ->where('status', 'completed')
-                ->lockForUpdate()
                 ->sum('amount');
 
             $this->amount_paid = $totalPaid;
@@ -128,18 +143,27 @@ class Invoice extends Model
         });
     }
 
-    protected function resolveStatus(float $totalPaid): string
+    protected function resolveStatus(float $totalPaid): InvoiceStatus
     {
+        // Written-off invoices keep their status — don't overwrite waived/cancelled.
+        if ($this->status instanceof InvoiceStatus
+            && in_array($this->status->value, InvoiceStatus::writtenOff(), true)) {
+            return $this->status;
+        }
+
         if ($totalPaid >= (float) $this->amount) {
-            return 'paid';
+            return InvoiceStatus::Paid;
         }
+
         if ($totalPaid > 0) {
-            return 'partially_paid';
+            return InvoiceStatus::PartiallyPaid;
         }
+
         if ($this->due_date && $this->due_date->endOfDay()->isPast()) {
-            return 'overdue';
+            return InvoiceStatus::Overdue;
         }
-        return 'pending';
+
+        return InvoiceStatus::Pending;
     }
 
     /* -----------------------------------------------------------------
@@ -148,11 +172,23 @@ class Invoice extends Model
      */
 
     /**
-     * Balance accessor — trusts the DB generated column when present.
+     * Balance accessor.
+     *
+     * Written-off invoices (waived, cancelled) always show a zero
+     * balance, regardless of what the generated DB column contains.
+     * For active invoices, trust the stored generated column.
      */
     public function getBalanceAttribute(): float
     {
-        return (float) ($this->attributes['balance'] ?? ((float) $this->amount - (float) $this->amount_paid));
+        if ($this->status instanceof InvoiceStatus
+            && in_array($this->status->value, InvoiceStatus::writtenOff(), true)) {
+            return 0.0;
+        }
+
+        return (float) (
+            $this->attributes['balance']
+            ?? ((float) $this->amount - (float) $this->amount_paid)
+        );
     }
 
     public function getBalanceFormattedAttribute(): string
@@ -173,12 +209,22 @@ class Invoice extends Model
     public function scopeOverdue(Builder $query): Builder
     {
         return $query->whereDate('due_date', '<', today())
-                     ->where('status', '!=', 'paid');
+                     ->whereNotIn('status', [
+                         InvoiceStatus::Paid->value,
+                         InvoiceStatus::Waived->value,
+                         InvoiceStatus::Cancelled->value,
+                     ]);
     }
 
     public function scopeUnpaid(Builder $query): Builder
     {
-        return $query->whereColumn('amount', '>', 'amount_paid');
+        return $query->whereColumn('amount', '>', 'amount_paid')
+                     ->whereNotIn('status', InvoiceStatus::writtenOff());
+    }
+
+    public function scopeWrittenOff(Builder $query): Builder
+    {
+        return $query->whereIn('status', InvoiceStatus::writtenOff());
     }
 
     public function scopeForYear(Builder $query, int $year): Builder

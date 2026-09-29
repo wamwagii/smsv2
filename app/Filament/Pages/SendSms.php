@@ -67,10 +67,10 @@ class SendSms extends Page
                 Radio::make('audience')
                     ->label('Recipients')
                     ->options([
-                        'all'     => 'All guardians (opted-in, active students)',
-                        'class'   => 'By class',
+                        'all'     => 'All parents (father or mother, opted-in)',
+                        'class'   => 'Parents by class',
                         'custom'  => 'Custom selection',
-                        'balance' => 'Guardians with outstanding fees',
+                        'balance' => 'Parents with outstanding fees',
                     ])
                     ->default('all')
                     ->live()
@@ -86,19 +86,28 @@ class SendSms extends Page
                     ->required(fn (callable $get) => $get('audience') === 'class'),
 
                 Select::make('guardian_ids')
-                    ->label('Guardians')
+                    ->label('Parents')
                     ->multiple()
                     ->searchable()
                     ->preload()
                     ->options(fn () => Guardian::query()
                         ->where('status', 'active')
                         ->whereNotNull('phone_number')
+                        ->whereIn('relationship', Guardian::SMS_RELATIONSHIPS)
                         ->orderBy('first_name')
                         ->get()
-                        ->mapWithKeys(fn ($g) => [$g->id => $g->full_name . ' — ' . $g->phone_number])
+                        ->mapWithKeys(fn ($g) => [
+                            $g->id => sprintf(
+                                '%s (%s) — %s',
+                                $g->full_name,
+                                ucfirst($g->relationship),
+                                $g->phone_number,
+                            ),
+                        ])
                     )
                     ->visible(fn (callable $get) => $get('audience') === 'custom')
-                    ->required(fn (callable $get) => $get('audience') === 'custom'),
+                    ->required(fn (callable $get) => $get('audience') === 'custom')
+                    ->helperText('Only fathers and mothers are shown. Guardians are not eligible for SMS.'),
 
                 TextInput::make('min_balance')
                     ->label('Minimum balance (KES)')
@@ -109,53 +118,65 @@ class SendSms extends Page
                     ->prefix('KES')
                     ->visible(fn (callable $get) => $get('audience') === 'balance')
                     ->required(fn (callable $get) => $get('audience') === 'balance')
-                    ->helperText('Only guardians whose total outstanding balance exceeds this amount will be messaged.'),
+                    ->helperText('Only parents whose total outstanding balance exceeds this amount will be messaged.'),
             ])
             ->statePath('data');
     }
+protected function getHeaderActions(): array
+{
+    return [
+        Action::make('send')
+            ->label('Send SMS')
+            ->icon('heroicon-o-paper-airplane')
+            ->color('primary')
 
-    protected function getHeaderActions(): array
-    {
-        return [
-            Action::make('send')
-                ->label('Send SMS')
-                ->icon('heroicon-o-paper-airplane')
-                ->color('primary')
-                ->requiresConfirmation()
-                ->modalHeading('Send SMS')
-                ->modalDescription(function () {
-                    $data = $this->form->getState();
+            // Validate the form BEFORE opening the confirmation modal.
+            // If the form is invalid, Filament shows field errors and
+            // the modal never opens.
+            ->before(function (Action $action) {
+                $this->form->getState();
+            })
 
-                    $audience   = $data['audience'] ?? 'all';
-                    $classId    = $data['class_id'] ?? null;
-                    $guardianIds = $data['guardian_ids'] ?? [];
-                    $minBalance = (float) ($data['min_balance'] ?? 1);
+            ->requiresConfirmation()
+            ->modalHeading('Send SMS')
+            ->modalDescription(function () {
+                // Safe — the form was validated in ->before()
+                $data = $this->form->getState();
 
-                    $count = app(SmsBatchService::class)->previewCount(
-                        audience:    $audience,
-                        classId:     $classId,
-                        guardianIds: $guardianIds,
-                        minBalance:  $minBalance,
-                    );
+                $audience    = $data['audience'] ?? 'all';
+                $classId     = $data['class_id'] ?? null;
+                $guardianIds = $data['guardian_ids'] ?? [];
+                $minBalance  = (float) ($data['min_balance'] ?? 1);
 
-                    $cost = number_format($count * 0.80, 2);
+                $count = app(SmsBatchService::class)->previewCount(
+                    audience:    $audience,
+                    classId:     $classId,
+                    guardianIds: $guardianIds,
+                    minBalance:  $minBalance,
+                );
 
-                    $extra = '';
+                $cost = number_format($count * 0.80, 2);
 
-                    if ($audience === 'balance') {
-                        $extra = ' Only guardians with a balance above KES ' .
-                                 number_format($minBalance, 0) . ' will receive this.';
-                    }
+                $extra = '';
 
-                    return "You are about to send to {$count} guardian(s).{$extra} " .
-                           "Estimated cost: KES {$cost}. Continue?";
-                })
-                ->modalSubmitActionLabel('Yes, send now')
-                ->modalCancelActionLabel('Cancel')
-                ->action(fn () => $this->send(app(SmsBatchService::class))),
-        ];
-    }
+                if ($audience === 'balance') {
+                    $extra = ' Only parents with a balance above KES ' .
+                             number_format($minBalance, 0) . ' will receive this.';
+                } elseif ($audience === 'class' && $classId) {
+                    $className = \App\Models\Classes::find($classId)?->class_code ?? 'selected class';
+                    $extra = " Target: {$className}.";
+                } elseif ($audience === 'custom') {
+                    $extra = ' ' . count($guardianIds) . ' hand-picked recipient(s).';
+                }
 
+                return "You are about to send to {$count} parent(s).{$extra} " .
+                       "Estimated cost: KES {$cost}. Continue?";
+            })
+            ->modalSubmitActionLabel('Yes, send now')
+            ->modalCancelActionLabel('Cancel')
+            ->action(fn () => $this->send(app(SmsBatchService::class))),
+    ];
+}
     public function send(SmsBatchService $service): void
     {
         $data = $this->form->getState();

@@ -2,6 +2,8 @@
 
 namespace App\Providers\Filament;
 
+use App\Http\Middleware\RedirectToOnboarding;
+use Filament\Actions\Action;
 use Filament\Auth\MultiFactor\App\AppAuthentication;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -28,11 +30,14 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
-            // ->registration()   // <-- recommend removing for admin panel
             ->passwordReset()
             ->emailVerification()
             ->emailChangeVerification()
             ->profile()
+            ->colors([
+    'primary' => Color::Amber,
+])
+            ->brandName(config('school.name'))
             ->sidebarCollapsibleOnDesktop()
             ->unsavedChangesAlerts()
             ->databaseNotifications()
@@ -49,6 +54,41 @@ class AdminPanelProvider extends PanelProvider
             ->widgets([
                 AccountWidget::class,
             ])
+            ->userMenuItems([
+                // Group 1 — quick actions
+                [
+                    Action::make('sendSms')
+                        ->label('Send SMS')
+                        ->url(fn() => \App\Filament\Pages\SendSms::getUrl())
+                        ->icon('heroicon-o-paper-airplane'),
+
+                    Action::make('smsHistory')
+                        ->label('SMS History')
+                        ->url(fn() => \App\Filament\Resources\SmsBatches\SmsBatchResource::getUrl())
+                        ->icon('heroicon-o-chat-bubble-left-right'),
+
+                    Action::make('attendances')
+                        ->label('Attendance')
+                        ->url(fn() => \App\Filament\Resources\Attendances\AttendanceResource::getUrl())
+                        ->icon('heroicon-o-calendar'),
+                ],
+
+                // Group 2 — external links
+                [
+                    Action::make('documentation')
+                        ->label('Documentation')
+                        ->url('https://filamentphp.com/docs')
+                        ->openUrlInNewTab()
+                        ->icon('heroicon-o-book-open'),
+
+                    Action::make('support')
+                        ->label('Contact support')
+                        ->url('mailto:' . config('school.email'))
+                        ->icon('heroicon-o-lifebuoy'),
+
+                    'logout' => fn (Action $action) => $action->label('Logout'),
+                ],
+            ])
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
@@ -62,11 +102,12 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
+                //RedirectToOnboarding::class,   // ← added — runs after Authenticate
             ])
             ->multiFactorAuthentication([
                 AppAuthentication::make()
                     ->recoverable()
-                    ->brandName(config('app.name')),
-            ], isRequired: true);
+                    ->brandName(config('school.name')),
+            ], isRequired: false);   // ← was true — changed to optional
     }
 }

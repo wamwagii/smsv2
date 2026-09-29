@@ -2,17 +2,21 @@
 
 namespace App\Models;
 
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
-use Barryvdh\DomPDF\Facade\Pdf;
 
 class Payment extends Model
 {
+
+
+    use SoftDeletes;
     protected $table = 'payments';
 
     protected $fillable = [
@@ -44,9 +48,26 @@ class Payment extends Model
         'gateway_response' => 'array',
     ];
 
+    /* -----------------------------------------------------------------
+     |  Boot
+     | -----------------------------------------------------------------
+     |
+     | The `saved`, `deleted`, and `restored` hooks all call
+     | `$payment->invoice?->updateAfterPayment()` so the parent invoice
+     | stays consistent through every step of the payment lifecycle:
+     |
+     |   - created  → invoice.amount_paid increases
+     |   - updated  → invoice.amount_paid re-syncs
+     |   - soft-deleted → invoice.amount_paid recomputes (excludes this row)
+     |   - restored → invoice.amount_paid recomputes (includes this row again)
+     |
+     | Callers should NOT call updateAfterPayment() themselves — that
+     | would duplicate the work and take an extra row lock.
+     */
+
     protected static function booted(): void
     {
-        // Auto-generate idempotency key + receipt number on create
+        // Auto-generate idempotency key + receipt number on create.
         static::creating(function (Payment $payment) {
             if (empty($payment->idempotency_key)) {
                 $payment->idempotency_key = (string) Str::uuid();
@@ -57,12 +78,22 @@ class Payment extends Model
             }
         });
 
-        // After create/update, sync the invoice
+        // Sync the parent invoice after any save.
         static::saved(function (Payment $payment) {
             $payment->invoice?->updateAfterPayment();
         });
 
-        // Send notification when status becomes completed
+        // Recompute when a payment is soft-deleted.
+        static::deleted(function (Payment $payment) {
+            $payment->invoice?->updateAfterPayment();
+        });
+
+        // Recompute when a soft-deleted payment is restored.
+        static::restored(function (Payment $payment) {
+            $payment->invoice?->updateAfterPayment();
+        });
+
+        // Send the receipt email when a payment transitions to "completed".
         static::updated(function (Payment $payment) {
             if ($payment->wasChanged('status') && $payment->status === 'completed') {
                 $payment->sendPaymentNotification();
@@ -139,7 +170,7 @@ class Payment extends Model
         $guardian = $this->parent;
         $student  = $this->student;
 
-        if (!$guardian || !$guardian->email) {
+        if (! $guardian || ! $guardian->email) {
             return;
         }
 
@@ -164,7 +195,7 @@ class Payment extends Model
     {
         $directory = storage_path('app/public/receipts');
 
-        if (!is_dir($directory)) {
+        if (! is_dir($directory)) {
             mkdir($directory, 0777, true);
         }
 

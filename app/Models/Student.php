@@ -2,19 +2,20 @@
 
 namespace App\Models;
 
+use App\Enums\InvoiceStatus;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 
 class Student extends Model
 {
     use SoftDeletes;
-    
+
     protected $table = 'students';
-    
+
     protected $fillable = [
         'admission_number',
         'first_name',
@@ -45,19 +46,19 @@ class Student extends Model
         'graduation_date',
         'medical_notes',
     ];
-    
+
     protected $casts = [
         'date_of_birth'   => 'date',
         'enrollment_date' => 'date',
         'graduation_date' => 'date',
         'deleted_at'      => 'datetime',
     ];
-    
+
     /* -----------------------------------------------------------------
      |  Boot — auto-generate roll number
      | -----------------------------------------------------------------
      */
-    
+
     protected static function booted(): void
     {
         static::creating(function (Student $student) {
@@ -69,37 +70,37 @@ class Student extends Model
             }
         });
     }
-    
+
     /* -----------------------------------------------------------------
      |  Relationships
      | -----------------------------------------------------------------
      */
-    
+
     public function class(): BelongsTo
     {
         return $this->belongsTo(Classes::class);
     }
-    
+
     public function academicYear(): BelongsTo
     {
         return $this->belongsTo(AcademicYears::class);
     }
-    
+
     public function results(): HasMany
     {
         return $this->hasMany(Result::class);
     }
-    
+
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
     }
-    
+
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);
     }
-    
+
     /**
      * Parents / Guardians linked to this student.
      *
@@ -118,7 +119,7 @@ class Student extends Model
             ->withPivot(['is_primary_contact', 'receives_notifications'])
             ->withTimestamps();
     }
-    
+
     /**
      * Alias for parents() — some parts of the app may call guardians().
      */
@@ -126,12 +127,12 @@ class Student extends Model
     {
         return $this->parents();
     }
-    
+
     /* -----------------------------------------------------------------
      |  Roll number generation
      | -----------------------------------------------------------------
      */
-    
+
     /**
      * Compute the next available roll number for a given class + academic year.
      *
@@ -147,7 +148,7 @@ class Student extends Model
         if (!$classId || !$academicYearId) {
             return null;
         }
-    
+
         $max = static::query()
             ->where('class_id', $classId)
             ->where('academic_year_id', $academicYearId)
@@ -155,10 +156,10 @@ class Student extends Model
             ->pluck('roll_number')
             ->map(fn ($r) => (int) $r)
             ->max();
-    
+
         return str_pad((string) (($max ?? 0) + 1), 2, '0', STR_PAD_LEFT);
     }
-    
+
     /**
      * Bulk reassign roll numbers for a class + academic year, alphabetically.
      * Useful at the start of a new academic year or when re-sorting a class.
@@ -174,23 +175,23 @@ class Student extends Model
                 ->orderBy('last_name')
                 ->orderBy('first_name')
                 ->get();
-    
+
             $counter = 1;
             foreach ($students as $student) {
                 $student->roll_number = str_pad((string) $counter, 2, '0', STR_PAD_LEFT);
                 $student->saveQuietly();
                 $counter++;
             }
-    
+
             return $students->count();
         });
     }
-    
+
     /* -----------------------------------------------------------------
      |  Helpers
      | -----------------------------------------------------------------
      */
-    
+
     /**
      * Get the primary contact parent/guardian for this student.
      */
@@ -200,7 +201,7 @@ class Student extends Model
             ->wherePivot('is_primary_contact', true)
             ->first();
     }
-    
+
     /**
      * Get all parents/guardians who should receive notifications.
      */
@@ -210,12 +211,12 @@ class Student extends Model
             ->wherePivot('receives_notifications', true)
             ->get();
     }
-    
+
     /* -----------------------------------------------------------------
      |  Accessors
      | -----------------------------------------------------------------
      */
-    
+
     /**
      * Full name accessor: "First Middle Last" (trims extra spaces).
      */
@@ -227,71 +228,95 @@ class Student extends Model
             . $this->last_name
         );
     }
-    
+
+    /* -----------------------------------------------------------------
+     |  Fee balance helpers
+     | -----------------------------------------------------------------
+     */
+
+    /**
+     * Total billed across all this student's invoices.
+     * This is the gross amount — including invoices later waived or cancelled.
+     * Kept for reporting; use `balance` for the net outstanding amount.
+     */
+    public function getTotalBilledAttribute(): float
+    {
+        return (float) $this->invoices()->sum('amount');
+    }
+
+    /**
+     * Total paid across all this student's invoices.
+     */
+    public function getTotalPaidAttribute(): float
+    {
+        return (float) $this->invoices()->sum('amount_paid');
+    }
+
+    /**
+     * Outstanding balance — sums each invoice's `balance` accessor.
+     *
+     * This respects the per-invoice written-off override: waived and
+     * cancelled invoices contribute 0 to the total, even though their
+     * generated `balance` column still shows the original amount.
+     *
+     * Positive = owes money. Negative = overpaid (credit).
+     */
+    public function getBalanceAttribute(): float
+    {
+        $this->loadMissing('invoices');
+
+        return round(
+            (float) $this->invoices->sum(fn (Invoice $i) => $i->balance),
+            2
+        );
+    }
+
+    /**
+     * True when the student owes money.
+     */
+    public function getHasBalanceAttribute(): bool
+    {
+        return $this->balance > 0.01;
+    }
+
+    /**
+     * True when the student has paid exactly (or more than) what they owe
+     * AND has at least one active (non-written-off) invoice.
+     */
+    public function getIsFullyPaidAttribute(): bool
+    {
+        $this->loadMissing('invoices');
+
+        $activeInvoices = $this->invoices->reject(
+            fn (Invoice $i) => $i->status instanceof InvoiceStatus
+                && in_array($i->status->value, InvoiceStatus::writtenOff(), true)
+        );
+
+        return $activeInvoices->isNotEmpty() && $this->balance <= 0.01;
+    }
+
+    /**
+     * Number of unpaid (pending / partially_paid / overdue) invoices.
+     * Written-off invoices (waived, cancelled) are not counted.
+     */
+    public function getUnpaidInvoicesCountAttribute(): int
+    {
+        return $this->invoices()
+            ->whereIn('status', [
+                InvoiceStatus::Pending->value,
+                InvoiceStatus::PartiallyPaid->value,
+                InvoiceStatus::Overdue->value,
+            ])
+            ->count();
+    }
+
     /* -----------------------------------------------------------------
      |  Scopes
      | -----------------------------------------------------------------
      */
-    
+
     public function scopeActive($query)
     {
         return $query->where('status', 'active');
     }
-    /* -----------------------------------------------------------------
- |  Fee balance helpers
- | -----------------------------------------------------------------
- */
-
-/**
- * Total billed across all this student's invoices.
- */
-public function getTotalBilledAttribute(): float
-{
-    return (float) $this->invoices()->sum('amount');
-}
-
-/**
- * Total paid across all this student's invoices.
- * Uses the invoices' own amount_paid column, so it stays in sync
- * with invoice-level partial-payment tracking.
- */
-public function getTotalPaidAttribute(): float
-{
-    return (float) $this->invoices()->sum('amount_paid');
-}
-
-/**
- * Outstanding balance. Positive = owes money. Negative = overpaid.
- */
-public function getBalanceAttribute(): float
-{
-    return round($this->total_billed - $this->total_paid, 2);
-}
-
-/**
- * True when the student owes money.
- */
-public function getHasBalanceAttribute(): bool
-{
-    return $this->balance > 0.01;
-}
-
-/**
- * True when the student has paid exactly (or more than) what they owe
- * AND has at least one invoice.
- */
-public function getIsFullyPaidAttribute(): bool
-{
-    return $this->invoices()->exists() && $this->balance <= 0.01;
-}
-
-/**
- * Number of unpaid (pending / partially_paid / overdue) invoices.
- */
-public function getUnpaidInvoicesCountAttribute(): int
-{
-    return $this->invoices()
-        ->whereIn('status', ['pending', 'partially_paid', 'overdue'])
-        ->count();
-}
 }
